@@ -896,7 +896,9 @@ function updateScrollCtl(){
 document.getElementById('scroll-up').addEventListener('click', e => { e.stopPropagation(); const c=scroller(); if(c) scrollApp(-c.clientHeight*0.7); });
 document.getElementById('scroll-down').addEventListener('click', e => { e.stopPropagation(); const c=scroller(); if(c) scrollApp(c.clientHeight*0.7); });
 document.addEventListener('scroll', updateScrollCtl, true);
-new MutationObserver(() => requestAnimationFrame(updateScrollCtl)).observe(app, {childList:true});
+new MutationObserver(() => { requestAnimationFrame(updateScrollCtl); setTimeout(updateScrollCtl, 450); }).observe(app, {childList:true});
+addEventListener('load', updateScrollCtl);
+if(document.fonts) document.fonts.ready.then(updateScrollCtl);
 
 // Wheel over the empty background scrolls the app too
 addEventListener('wheel', e => { if(!app.contains(e.target) && !e.target.closest('.scroll-ctl')) scrollApp(e.deltaY, false); }, {passive:true});
