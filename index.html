@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="theme-color" content="#2563eb">
-<title>Worksetu Mobile (Local)</title>
+<title>Worksetu</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -297,11 +297,28 @@ html[data-theme="dark"] .map{background:
 html[data-theme="dark"] .toast{background:#e5e9f2;color:#0f172a}
 .toast.show{transform:none;opacity:1}
 .toast .ti{width:28px;height:28px;border-radius:9px;background:var(--success);display:grid;place-items:center;color:#fff}
+/* Scrolling aids (desktop only; phones keep native touch scrolling) */
+.scroll-ctl{display:none}
+@media (min-width:501px){
+  .content{scrollbar-width:thin;scrollbar-color:rgba(100,116,139,.45) transparent}
+  .content::-webkit-scrollbar{display:block;width:6px}
+  .content::-webkit-scrollbar-thumb{background:rgba(100,116,139,.45);border-radius:3px}
+  .content.dragging{cursor:grabbing;user-select:none;scroll-behavior:auto}
+  .scroll-ctl{display:flex;flex-direction:column;gap:10px;position:fixed;top:50%;transform:translateY(-50%);z-index:100}
+  .scroll-ctl button{width:48px;height:48px;border-radius:50%;background:var(--surface);border:1px solid var(--border);color:var(--text);display:grid;place-items:center;box-shadow:var(--shadow);transition:opacity .2s,transform .12s}
+  .scroll-ctl button:hover{color:var(--primary);border-color:var(--primary-line)}
+  .scroll-ctl button:active{transform:scale(.92)}
+  .scroll-ctl button:disabled{opacity:.35;cursor:default}
+}
 .sandbox-tag{position:absolute;left:50%;transform:translateX(-50%);bottom:4px;font-size:9px;font-weight:700;color:var(--faint);letter-spacing:.08em;pointer-events:none;z-index:6;display:none}
 </style>
 </head>
 <body>
 <div id="app"></div>
+<div class="scroll-ctl" id="scroll-ctl">
+  <button id="scroll-up" aria-label="Scroll up" title="Scroll up (↑ / Page Up)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg></button>
+  <button id="scroll-down" aria-label="Scroll down" title="Scroll down (↓ / Page Down)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+</div>
 
 <script>
 /* =====================================================================
@@ -861,9 +878,56 @@ const spin=document.createElement('style'); spin.textContent='@keyframes spin{to
 /* ===================== BOOT ===================== */
 // On desktop, shrink the phone frame so the whole device fits in the window
 function fitPhone(){
-  const s = innerWidth > 500 ? Math.min(1, (innerHeight - 40) / 844, (innerWidth - 40) / 390) : 1;
+  const s = innerWidth > 500 ? Math.min(1, (innerHeight - 40) / 844, (innerWidth - 180) / 390) : 1;
   document.documentElement.style.setProperty('--phone-scale', s);
+  document.getElementById('scroll-ctl').style.left = (innerWidth / 2 + 195 * s + 28) + 'px';
+  updateScrollCtl();
 }
+
+/* ---- Scrolling: buttons, mouse wheel anywhere, drag-to-scroll, keyboard ---- */
+const scroller = () => app.querySelector('.content');
+function scrollApp(dy, smooth=true){ const c=scroller(); if(c) c.scrollBy({top:dy, behavior:smooth?'smooth':'auto'}); }
+function updateScrollCtl(){
+  const c=scroller(), up=document.getElementById('scroll-up'), down=document.getElementById('scroll-down');
+  const max = c ? c.scrollHeight - c.clientHeight : 0;
+  up.disabled = !c || c.scrollTop <= 1;
+  down.disabled = !c || c.scrollTop >= max - 1;
+}
+document.getElementById('scroll-up').addEventListener('click', e => { e.stopPropagation(); const c=scroller(); if(c) scrollApp(-c.clientHeight*0.7); });
+document.getElementById('scroll-down').addEventListener('click', e => { e.stopPropagation(); const c=scroller(); if(c) scrollApp(c.clientHeight*0.7); });
+document.addEventListener('scroll', updateScrollCtl, true);
+new MutationObserver(() => requestAnimationFrame(updateScrollCtl)).observe(app, {childList:true});
+
+// Wheel over the empty background scrolls the app too
+addEventListener('wheel', e => { if(!app.contains(e.target) && !e.target.closest('.scroll-ctl')) scrollApp(e.deltaY, false); }, {passive:true});
+
+// Click-and-drag with the mouse to scroll, like a finger swipe
+let drag=null, suppressClick=false;
+app.addEventListener('pointerdown', e => {
+  if(e.pointerType!=='mouse' || e.button!==0 || e.target.closest('input,textarea')) return;
+  const c=e.target.closest('.content'); if(!c) return;
+  drag={c, y:e.clientY, top:c.scrollTop, moved:false};
+});
+addEventListener('pointermove', e => {
+  if(!drag) return; const dy=e.clientY-drag.y;
+  if(!drag.moved && Math.abs(dy)<6) return;
+  drag.moved=true; drag.c.classList.add('dragging');
+  const scale=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--phone-scale'))||1;
+  drag.c.scrollTop = drag.top - dy/scale;
+});
+addEventListener('pointerup', () => { if(drag){ if(drag.moved){ suppressClick=true; setTimeout(()=>suppressClick=false,0); } drag.c.classList.remove('dragging'); drag=null; } });
+addEventListener('click', e => { if(suppressClick){ e.stopPropagation(); e.preventDefault(); suppressClick=false; } }, true);
+
+// Keyboard: arrows, Page Up/Down, Home/End, Space
+addEventListener('keydown', e => {
+  if(e.target.closest && e.target.closest('input,textarea')) return;
+  const c=scroller(); if(!c) return;
+  const page=c.clientHeight*0.85;
+  const map={ArrowDown:80, ArrowUp:-80, PageDown:page, PageUp:-page, ' ':e.shiftKey?-page:page};
+  if(e.key==='Home'){ c.scrollTo({top:0,behavior:'smooth'}); e.preventDefault(); }
+  else if(e.key==='End'){ c.scrollTo({top:c.scrollHeight,behavior:'smooth'}); e.preventDefault(); }
+  else if(e.key in map){ scrollApp(map[e.key]); e.preventDefault(); }
+});
 addEventListener('resize', fitPhone);
 fitPhone();
 if(new URLSearchParams(location.search).get('statusbar')==='0') document.body.classList.add('no-sb');
