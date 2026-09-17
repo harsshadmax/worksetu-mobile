@@ -8,7 +8,6 @@ A mobile-app-style demo of [Worksetu](https://worksetu-web.onrender.com), for sc
 
 ## Demo login
 - Email: `master@worksetu.local` (or phone `9999999999`)
-- Password: `Master@2026`
 
 Pick Customer, Worker or Admin before signing in, or switch later under Profile → Switch portal.
 
