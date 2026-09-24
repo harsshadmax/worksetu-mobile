@@ -7,7 +7,7 @@
 <title>Worksetu</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+Tamil:wght@400;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700;800&family=Noto+Sans+Bengali:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
 /* ============ DESIGN TOKENS (matched to worksetu-web) ============ */
 :root{
@@ -29,7 +29,7 @@ html[data-theme="dark"]{
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%}
-body{font-family:Inter,"Noto Sans Devanagari","Noto Sans Tamil",system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;overflow:hidden}
+body{font-family:Inter,"Noto Sans Devanagari","Noto Sans Tamil","Noto Sans Bengali",system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;overflow:hidden}
 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 input{font:inherit;color:inherit}
 .ic{display:block;flex-shrink:0}
@@ -118,6 +118,10 @@ body.no-sb .statusbar{display:none}
 .seg{display:flex;background:var(--surface-2);border:1px solid var(--border);border-radius:14px;padding:4px;gap:4px}
 .seg button{flex:1;height:38px;border-radius:10px;font-size:12.5px;font-weight:700;color:var(--muted);transition:all .2s}
 .seg button.on{background:var(--surface);color:var(--primary);box-shadow:var(--shadow)}
+.lang-seg{flex:1;padding:3px;gap:3px}
+.lang-seg button{height:32px;font-size:12px;padding:0 4px}
+.settings .s-item.s-lang{flex-wrap:wrap}
+.s-lang .lang-seg{flex-basis:100%}
 .toggle{width:50px;height:30px;border-radius:15px;background:var(--border);position:relative;transition:background .2s;flex-shrink:0}
 .toggle:after{content:"";position:absolute;left:3px;top:3px;width:24px;height:24px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform .22s cubic-bezier(.3,.7,.3,1.3)}
 .toggle.on{background:var(--success)}
@@ -154,6 +158,9 @@ body.no-sb .statusbar{display:none}
 .pill-light{display:inline-flex;align-items:center;gap:6px;font-size:9.5px;font-weight:800;letter-spacing:.08em;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.25);padding:6px 10px;border-radius:999px;text-transform:uppercase}
 .pill-light i{width:6px;height:6px;border-radius:50%;background:#86efac;display:block}
 .login-card{margin:-40px 16px 0;padding:18px;position:relative;z-index:2}
+.hero-langs{display:flex;justify-content:flex-end;gap:4px;margin:-12px 0 16px;position:relative;z-index:1}
+.hero-langs button{height:26px;padding:0 10px;border-radius:999px;font-size:11.5px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(255,255,255,.12);transition:all .2s}
+.hero-langs button.on{background:#fff;color:var(--primary)}
 .master-card{margin-top:14px;border:1.5px dashed var(--primary-line);background:var(--primary-soft);border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:12px;text-align:left;width:100%}
 .master-card .mk{width:38px;height:38px;border-radius:11px;background:var(--primary);color:#fff;display:grid;place-items:center}
 
@@ -342,9 +349,9 @@ html[data-theme="dark"] .toast{background:#e5e9f2;color:#0f172a}
 const MASTER = { email:'master@worksetu.local', phone:'9999999999', password:'Master@2026' };
 
 const PERSONAS = {
-  customer:{ name:'Deepika Ramaswamy', short:'Deepika', meta:'Adyar, Chennai', initials:'DR', color:'#2563eb', label:'Customer' },
-  worker:{ name:'Ravi Kumar', short:'Ravi', meta:'Plumbing • Adyar Plumbers Cooperative', initials:'RK', color:'#16a34a', label:'Cooperative Worker' },
-  admin:{ name:'Registrar', short:'Registrar', meta:'Super Admin • Federation Board', initials:'SA', color:'#7c3aed', label:'Platform Administrator' }
+  customer:{ name:'Deepika Ramaswamy', short:'Deepika', get meta(){ return 'Adyar, Chennai'; }, initials:'DR', color:'#2563eb', get label(){ return t('persona.customer'); } },
+  worker:{ name:'Ravi Kumar', short:'Ravi', get meta(){ return t('svc.plumbing')+' • Adyar Plumbers Cooperative'; }, initials:'RK', color:'#16a34a', get label(){ return t('persona.worker'); } },
+  admin:{ get name(){ return t('persona.registrar'); }, get short(){ return t('persona.registrar'); }, get meta(){ return t('persona.adminMeta'); }, initials:'SA', color:'#7c3aed', get label(){ return t('persona.admin'); } }
 };
 
 const ICONS = {
@@ -396,13 +403,16 @@ const inr = n => '₹' + n.toLocaleString('en-IN');
 
 // ---- Demo data ----
 const SERVICES = [
-  {id:'plumbing', name:'Plumbing', icon:'drop', price:299, color:'#0ea5e9', desc:'Leak repair, tap & pipe fitting, overhead tank cleaning'},
-  {id:'electrical', name:'Electrical', icon:'bolt', price:249, color:'#f59e0b', desc:'Wiring, switchboards, fan & light installation'},
-  {id:'carpentry', name:'Carpentry', icon:'hammer', price:349, color:'#b45309', desc:'Furniture repair, door alignment, cabinet fitting'},
-  {id:'painting', name:'Painting', icon:'roller', price:1499, color:'#8b5cf6', desc:'Room painting, touch-ups & waterproofing'},
-  {id:'cleaning', name:'Cleaning', icon:'sparkle', price:499, color:'#10b981', desc:'Deep cleaning for kitchen, bathroom & bedrooms'},
-  {id:'ac', name:'AC Repair', icon:'snow', price:449, color:'#6366f1', desc:'Servicing, gas top-up & installation'}
-];
+  {id:'plumbing', icon:'drop', price:299, color:'#0ea5e9'},
+  {id:'electrical', icon:'bolt', price:249, color:'#f59e0b'},
+  {id:'carpentry', icon:'hammer', price:349, color:'#b45309'},
+  {id:'painting', icon:'roller', price:1499, color:'#8b5cf6'},
+  {id:'cleaning', icon:'sparkle', price:499, color:'#10b981'},
+  {id:'ac', icon:'snow', price:449, color:'#6366f1'}
+].map(x => Object.defineProperties(x, {
+  name:{get(){ return t('svc.'+this.id); }},
+  desc:{get(){ return t('svc.'+this.id+'.desc'); }}
+}));
 const svc = id => SERVICES.find(s => s.id === id);
 const WORKERS = {
   plumbing:{name:'Ravi Kumar', init:'RK', color:'#0ea5e9', coop:'Adyar Plumbers Cooperative', rating:4.9, jobs:312, yrs:8, served:true},
@@ -412,73 +422,371 @@ const WORKERS = {
   cleaning:{name:'Meena Selvam', init:'MS', color:'#10b981', coop:'Mylapore Home Care Cooperative', rating:4.9, jobs:421, yrs:7, served:true},
   ac:{name:'Suresh Babu', init:'SB', color:'#6366f1', coop:'Chennai Cooling Technicians Coop.', rating:4.6, jobs:233, yrs:9}
 };
-const STEPS = [
-  {t:'Booking requested', d:'Sent to local cooperative'},
-  {t:'Worker assigned', d:'Verified union member dispatched'},
-  {t:'On the way', d:'Worker is travelling to you'},
-  {t:'Service in progress', d:'Share OTP to start the job'},
-  {t:'Completed', d:'Payment settled to cooperative ledger'}
-];
-const DATES = (() => { const out=[], d=new Date(); const wd=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], mo=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  for(let i=0;i<6;i++){ const x=new Date(d); x.setDate(d.getDate()+i); out.push({label:i===0?'Today':i===1?'Tomorrow':wd[x.getDay()], sub:x.getDate()+' '+mo[x.getMonth()]}); } return out; })();
+const STEPS = [0,1,2,3,4].map(i => ({ get t(){ return t('step'+i); }, get d(){ return t('step'+i+'.d'); } }));
+// Next six bookable days, labelled in the active language on every render
+const DATES = () => { const out=[], d=new Date(), wd=tl('days.week'), mo=tl('months');
+  for(let i=0;i<6;i++){ const x=new Date(d); x.setDate(d.getDate()+i); out.push({label:i===0?t('day.today'):i===1?t('day.tomorrow'):wd[x.getDay()], sub:x.getDate()+' '+mo[x.getMonth()], value:i===0?'today':i===1?'tomorrow':[x.getDate(),x.getMonth()]}); } return out; };
+// Booking/job day: 'today' | 'tomorrow' | 'yesterday' | [date, monthIndex]
+const dayLabel = v => Array.isArray(v) ? v[0]+' '+tl('months')[v[1]] : t('day.'+v);
 const SLOTS = ['9:00 AM','11:00 AM','1:00 PM','3:00 PM','5:00 PM','7:00 PM'];
 
 const S = {
   user:null, role:'customer', loginRole:'customer', tab:'home', stack:[], anim:'fade',
-  theme:'light', lang:'EN', splashDone:false,
+  theme:'light', lang:'en', splashDone:false,
   draft:{date:0, slot:1},
   bookingFilter:'active',
   bookings:[
-    {id:'WS-24817', service:'electrical', date:'Today', slot:'4:00 PM', step:2, price:249},
-    {id:'WS-23960', service:'plumbing', date:'2 Sep', slot:'11:00 AM', step:4, price:299, rated:5},
-    {id:'WS-23412', service:'cleaning', date:'21 Aug', slot:'9:00 AM', step:4, price:499, rated:5}
+    {id:'WS-24817', service:'electrical', date:'today', slot:'4:00 PM', step:2, price:249},
+    {id:'WS-23960', service:'plumbing', date:[2,8], slot:'11:00 AM', step:4, price:299, rated:5},
+    {id:'WS-23412', service:'cleaning', date:[21,7], slot:'9:00 AM', step:4, price:499, rated:5}
   ],
   notifs:[
-    {icon:'nav', title:'Rajesh is on the way', body:'Electrical service • ETA 12 min', time:'2m', unread:true, tone:'b-blue'},
-    {icon:'coins', title:'Cooperative dividend credited', body:'₹180 shared with 24 member workers', time:'1h', unread:true, tone:'b-green'},
-    {icon:'shield', title:'Worker verified', body:'Meena Selvam renewed Aadhaar verification', time:'1d', unread:false, tone:'b-gray'}
+    // title/body are dictionary keys (n.*) rendered with vars; time is [amount, unit]
+    {icon:'nav', key:'enroute', vars:{name:'Rajesh', svc:'electrical', n:12}, time:[2,'m'], unread:true, tone:'b-blue'},
+    {icon:'coins', key:'dividend', vars:{amt:'₹180', n:24}, time:[1,'h'], unread:true, tone:'b-green'},
+    {icon:'shield', key:'verified', vars:{name:'Meena Selvam'}, time:[1,'d'], unread:false, tone:'b-gray'}
   ],
   // worker
   online:true, earningsToday:1240, jobsToday:3, request:null, reqTimer:null, reqIdx:0,
   jobs:[
-    {id:'J-5521', title:'Kitchen tap replacement', customer:'Deepika R.', area:'Adyar', slot:'Today, 5:00 PM', pay:399, status:'upcoming'},
-    {id:'J-5512', title:'Bathroom pipe leakage', customer:'Karthik M.', area:'Thiruvanmiyur', slot:'Today, 1:00 PM', pay:450, status:'done'},
-    {id:'J-5507', title:'Overhead tank cleaning', customer:'Priya N.', area:'Besant Nagar', slot:'Today, 10:00 AM', pay:520, status:'done'},
-    {id:'J-5488', title:'Wash basin fitting', customer:'Anand V.', area:'Indira Nagar', slot:'Yesterday', pay:370, status:'done'}
+    // title is a dictionary key (job.*); slot is {day, time}
+    {id:'J-5521', title:'tap', customer:'Deepika R.', area:'Adyar', slot:{day:'today', time:'5:00 PM'}, pay:399, status:'upcoming'},
+    {id:'J-5512', title:'pipe', customer:'Karthik M.', area:'Thiruvanmiyur', slot:{day:'today', time:'1:00 PM'}, pay:450, status:'done'},
+    {id:'J-5507', title:'tank', customer:'Priya N.', area:'Besant Nagar', slot:{day:'today', time:'10:00 AM'}, pay:520, status:'done'},
+    {id:'J-5488', title:'basin', customer:'Anand V.', area:'Indira Nagar', slot:{day:'yesterday'}, pay:370, status:'done'}
   ],
   week:[820,1240,960,1510,1100,1780,1240],
   // admin
   members:[
-    {name:'Ravi Kumar', skill:'Plumbing', coop:'Adyar Plumbers', init:'RK', color:'#0ea5e9', status:'verified'},
-    {name:'Rajesh Kannan', skill:'Electrical', coop:'Chennai Electricians', init:'RK', color:'#f59e0b', status:'verified'},
-    {name:'Vignesh Raman', skill:'AC Repair', coop:'Chennai Cooling Techs', init:'VR', color:'#6366f1', status:'pending'},
-    {name:'Meena Selvam', skill:'Cleaning', coop:'Mylapore Home Care', init:'MS', color:'#10b981', status:'verified'},
-    {name:'Farhan Sheikh', skill:'Carpentry', coop:'TN Woodworkers', init:'FS', color:'#b45309', status:'pending'},
-    {name:'Lakshmi Priya', skill:'Painting', coop:'Velachery Painters', init:'LP', color:'#8b5cf6', status:'verified'},
-    {name:'Arjun Das', skill:'Carpentry', coop:'TN Woodworkers', init:'AD', color:'#b45309', status:'verified'},
-    {name:'Suresh Babu', skill:'AC Repair', coop:'Chennai Cooling Techs', init:'SB', color:'#6366f1', status:'verified'}
+    {name:'Ravi Kumar', skill:'plumbing', coop:'Adyar Plumbers', init:'RK', color:'#0ea5e9', status:'verified'},
+    {name:'Rajesh Kannan', skill:'electrical', coop:'Chennai Electricians', init:'RK', color:'#f59e0b', status:'verified'},
+    {name:'Vignesh Raman', skill:'ac', coop:'Chennai Cooling Techs', init:'VR', color:'#6366f1', status:'pending'},
+    {name:'Meena Selvam', skill:'cleaning', coop:'Mylapore Home Care', init:'MS', color:'#10b981', status:'verified'},
+    {name:'Farhan Sheikh', skill:'carpentry', coop:'TN Woodworkers', init:'FS', color:'#b45309', status:'pending'},
+    {name:'Lakshmi Priya', skill:'painting', coop:'Velachery Painters', init:'LP', color:'#8b5cf6', status:'verified'},
+    {name:'Arjun Das', skill:'carpentry', coop:'TN Woodworkers', init:'AD', color:'#b45309', status:'verified'},
+    {name:'Suresh Babu', skill:'ac', coop:'Chennai Cooling Techs', init:'SB', color:'#6366f1', status:'verified'}
   ],
   dispatchFilter:'all',
   dispatches:[
-    {id:'WS-24817', svc:'electrical', worker:'Rajesh Kannan', area:'Adyar, Chennai', status:'En route'},
-    {id:'WS-24815', svc:'plumbing', worker:'Ravi Kumar', area:'Thiruvanmiyur, Chennai', status:'In progress'},
-    {id:'WS-24811', svc:'cleaning', worker:'Meena Selvam', area:'Connaught Place, New Delhi', status:'Assigning'},
-    {id:'WS-24806', svc:'painting', worker:'Lakshmi Priya', area:'Velachery, Chennai', status:'Completed'},
-    {id:'WS-24799', svc:'ac', worker:'Suresh Babu', area:'T. Nagar, Chennai', status:'Completed'}
+    {id:'WS-24817', svc:'electrical', worker:'Rajesh Kannan', area:'Adyar, Chennai', status:'enroute'},
+    {id:'WS-24815', svc:'plumbing', worker:'Ravi Kumar', area:'Thiruvanmiyur, Chennai', status:'progress'},
+    {id:'WS-24811', svc:'cleaning', worker:'Meena Selvam', area:'Connaught Place, New Delhi', status:'assigning'},
+    {id:'WS-24806', svc:'painting', worker:'Lakshmi Priya', area:'Velachery, Chennai', status:'completed'},
+    {id:'WS-24799', svc:'ac', worker:'Suresh Babu', area:'T. Nagar, Chennai', status:'completed'}
   ]
 };
 const REQUESTS = [
-  {title:'Kitchen sink leakage', customer:'Anand V.', area:'Besant Nagar', dist:'2.1 km', pay:349},
-  {title:'Geyser inlet pipe repair', customer:'Sowmya K.', area:'Adyar', dist:'1.4 km', pay:420},
-  {title:'Flush tank not working', customer:'Harish P.', area:'Kotturpuram', dist:'3.0 km', pay:310}
+  {title:'sink', customer:'Anand V.', area:'Besant Nagar', dist:'2.1 km', pay:349},
+  {title:'geyser', customer:'Sowmya K.', area:'Adyar', dist:'1.4 km', pay:420},
+  {title:'flush', customer:'Harish P.', area:'Kotturpuram', dist:'3.0 km', pay:310}
 ];
 
-const GREET = {EN:'Hello', 'हिं':'नमस्ते', 'தமிழ்':'வணக்கம்'};
-const LANGS = ['EN','हिं','தமிழ்'];
+/* ===================== I18N ===================== */
+// Locale ids are stable codes; the label is only what the picker shows.
+const LANGS = [['en','English'],['ta','தமிழ்'],['hi','हिन्दी'],['bn','বাংলা']];
+const LANG_IDS = LANGS.map(l => l[0]);
+// Values written by the old cycling toggle, so saved sessions keep their language.
+const LEGACY_LANG = {EN:'en', 'हिं':'hi', 'தமிழ்':'ta'};
+const normLang = v => LANG_IDS.includes(v) ? v : (LEGACY_LANG[v] || 'en');
 
-// ---- persistence (per-tab, optional) ----
-function save(){ try{ sessionStorage.setItem('ws-local', JSON.stringify({user:!!S.user, role:S.role, theme:S.theme, lang:S.lang})); }catch(e){} }
-function load(){ try{ const d=JSON.parse(sessionStorage.getItem('ws-local')||'null'); if(d){ if(d.user){S.user=MASTER; S.splashDone=true;} S.role=d.role||'customer'; S.theme=d.theme||'light'; S.lang=d.lang||'EN'; } }catch(e){} }
+// Every user-facing string: key -> [en, ta, hi, bn]. English is the fallback.
+// Comma-separated values (days.*, months) are read as lists with tl().
+const STR = {
+  'app.tagline':['COOPERATIVE GIG SERVICES','கூட்டுறவு சேவைப் பணிகள்','सहकारी गिग सेवाएँ','সমবায় গিগ পরিষেবা'],
+  'a11y.theme':['Theme','தீம்','थीम','থিম'],
+  'a11y.back':['Back','பின்செல்','वापस','পিছনে'],
+  'a11y.readAll':['Mark all read','அனைத்தையும் படித்ததாகக் குறி','सभी को पढ़ा हुआ चिह्नित करें','সব পঠিত হিসেবে চিহ্নিত করুন'],
+  'a11y.toggle':['Toggle availability','கிடைக்கும் நிலையை மாற்று','उपलब्धता बदलें','উপলব্ধতা পরিবর্তন করুন'],
+  'a11y.scrollUp':['Scroll up','மேலே உருட்டு','ऊपर स्क्रॉल करें','উপরে স্ক্রল করুন'],
+  'a11y.scrollDown':['Scroll down','கீழே உருட்டு','नीचे स्क्रॉल करें','নিচে স্ক্রল করুন'],
+  // navigation
+  'nav.home':['Home','முகப்பு','होम','হোম'],
+  'nav.services':['Services','சேவைகள்','सेवाएँ','পরিষেবা'],
+  'nav.bookings':['Bookings','முன்பதிவுகள்','बुकिंग','বুকিং'],
+  'nav.profile':['Profile','சுயவிவரம்','प्रोफ़ाइल','প্রোফাইল'],
+  'nav.dashboard':['Dashboard','டாஷ்போர்டு','डैशबोर्ड','ড্যাশবোর্ড'],
+  'nav.jobs':['Jobs','வேலைகள்','काम','কাজ'],
+  'nav.earnings':['Earnings','வருமானம்','कमाई','আয়'],
+  'nav.console':['Console','கன்சோல்','कंसोल','কনসোল'],
+  'nav.members':['Members','உறுப்பினர்கள்','सदस्य','সদস্য'],
+  'nav.dispatch':['Dispatch','அனுப்புதல்','डिस्पैच','ডিসপ্যাচ'],
+  'nav.notifications':['Notifications','அறிவிப்புகள்','सूचनाएँ','বিজ্ঞপ্তি'],
+  // roles & personas
+  'role.customer':['Customer','வாடிக்கையாளர்','ग्राहक','গ্রাহক'],
+  'role.worker':['Worker','தொழிலாளர்','कामगार','কর্মী'],
+  'role.admin':['Admin','நிர்வாகி','एडमिन','অ্যাডমিন'],
+  'persona.customer':['Customer','வாடிக்கையாளர்','ग्राहक','গ্রাহক'],
+  'persona.worker':['Cooperative Worker','கூட்டுறவுத் தொழிலாளர்','सहकारी कामगार','সমবায় কর্মী'],
+  'persona.admin':['Platform Administrator','தள நிர்வாகி','प्लेटफ़ॉर्म प्रशासक','প্ল্যাটফর্ম প্রশাসক'],
+  'persona.registrar':['Registrar','பதிவாளர்','रजिस्ट्रार','রেজিস্ট্রার'],
+  'persona.adminMeta':['Super Admin • Federation Board','சூப்பர் நிர்வாகி • கூட்டமைப்பு வாரியம்','सुपर एडमिन • महासंघ बोर्ड','সুপার অ্যাডমিন • ফেডারেশন বোর্ড'],
+  // login
+  'login.pill':['Ministry of Cooperation • Labour Federation','கூட்டுறவு அமைச்சகம் • தொழிலாளர் கூட்டமைப்பு','सहकारिता मंत्रालय • श्रमिक महासंघ','সমবায় মন্ত্রক • শ্রমিক ফেডারেশন'],
+  'login.customer.eyebrow':['01 — Customer Access','01 — வாடிக்கையாளர் அணுகல்','01 — ग्राहक प्रवेश','01 — গ্রাহক প্রবেশ'],
+  'login.customer.title':['Welcome<br>back.','மீண்டும்<br>வருக.','फिर से<br>स्वागत है।','আবার<br>স্বাগতম।'],
+  'login.customer.sub':['Household Citizen Portal','குடும்பக் குடிமக்கள் தளம்','घरेलू नागरिक पोर्टल','গৃহস্থ নাগরিক পোর্টাল'],
+  'login.worker.eyebrow':['01 — Worker Access','01 — தொழிலாளர் அணுகல்','01 — कामगार प्रवेश','01 — কর্মী প্রবেশ'],
+  'login.worker.title':['Cooperative<br>portal.','கூட்டுறவுத்<br>தளம்.','सहकारी<br>पोर्टल।','সমবায়<br>পোর্টাল।'],
+  'login.worker.sub':['Worksetu Federation Worker Portal','Worksetu கூட்டமைப்புத் தொழிலாளர் தளம்','Worksetu महासंघ कामगार पोर्टल','Worksetu ফেডারেশন কর্মী পোর্টাল'],
+  'login.admin.eyebrow':['Management Console','மேலாண்மை கன்சோல்','प्रबंधन कंसोल','ম্যানেজমেন্ট কনসোল'],
+  'login.admin.title':['Registrar<br>authority.','பதிவாளர்<br>அதிகாரம்.','रजिस्ट्रार<br>प्राधिकरण।','রেজিস্ট্রার<br>কর্তৃপক্ষ।'],
+  'login.admin.sub':['Federation Board Control Panel','கூட்டமைப்பு வாரியக் கட்டுப்பாட்டுப் பலகை','महासंघ बोर्ड नियंत्रण पैनल','ফেডারেশন বোর্ড কন্ট্রোল প্যানেল'],
+  'login.heading.customer':['Customer Login','வாடிக்கையாளர் உள்நுழைவு','ग्राहक लॉगिन','গ্রাহক লগইন'],
+  'login.heading.worker':['Worker Login','தொழிலாளர் உள்நுழைவு','कामगार लॉगिन','কর্মী লগইন'],
+  'login.heading.admin':['Admin Login','நிர்வாகி உள்நுழைவு','एडमिन लॉगिन','অ্যাডমিন লগইন'],
+  'login.user':['Enter email or phone number','மின்னஞ்சல் அல்லது தொலைபேசி எண்ணை உள்ளிடவும்','ईमेल या फ़ोन नंबर दर्ज करें','ইমেল বা ফোন নম্বর লিখুন'],
+  'login.userPh':['e.g. {email}','எ.கா. {email}','उदा. {email}','যেমন {email}'],
+  'login.pass':['Enter password','கடவுச்சொல்லை உள்ளிடவும்','पासवर्ड दर्ज करें','পাসওয়ার্ড লিখুন'],
+  'login.err':['Invalid credentials. Use the local master account below.','தவறான விவரங்கள். கீழே உள்ள உள்ளூர் முதன்மைக் கணக்கைப் பயன்படுத்தவும்.','अमान्य क्रेडेंशियल। नीचे दिए गए स्थानीय मास्टर खाते का उपयोग करें।','ভুল তথ্য। নিচের স্থানীয় মাস্টার অ্যাকাউন্ট ব্যবহার করুন।'],
+  'login.submit':['Sign in','உள்நுழை','साइन इन करें','সাইন ইন'],
+  'login.master':['⚡ LOCAL MASTER ACCOUNT','⚡ உள்ளூர் முதன்மைக் கணக்கு','⚡ स्थानीय मास्टर खाता','⚡ স্থানীয় মাস্টার অ্যাকাউন্ট'],
+  'login.masterHint':['Tap to autofill • works for all portals','தானாக நிரப்பத் தட்டவும் • அனைத்துத் தளங்களிலும் செயல்படும்','ऑटोफ़िल के लिए टैप करें • सभी पोर्टल पर काम करता है','অটোফিল করতে ট্যাপ করুন • সব পোর্টালে কাজ করে'],
+  'login.noAccount':["Don't have an account?",'கணக்கு இல்லையா?','खाता नहीं है?','অ্যাকাউন্ট নেই?'],
+  'login.register':['Register here','இங்கே பதிவு செய்யவும்','यहाँ रजिस्टर करें','এখানে নিবন্ধন করুন'],
+  'login.offline':['Offline sandbox • no live data','ஆஃப்லைன் சோதனைச் சூழல் • நேரடித் தரவு இல்லை','ऑफ़लाइन सैंडबॉक्स • कोई लाइव डेटा नहीं','অফলাইন স্যান্ডবক্স • কোনো লাইভ ডেটা নেই'],
+  // customer home
+  'home.hello':['Hello, {name} 👋','வணக்கம், {name} 👋','नमस्ते, {name} 👋','নমস্কার, {name} 👋'],
+  'home.search':['Search plumbing, electrical…','பிளம்பிங், மின் வேலை… தேடுங்கள்','प्लंबिंग, इलेक्ट्रिकल… खोजें','প্লাম্বিং, ইলেকট্রিক্যাল… খুঁজুন'],
+  'live':['LIVE','நேரலை','लाइव','লাইভ'],
+  'home.coopBacked':['Cooperative backed','கூட்டுறவு ஆதரவு','सहकारी समर्थित','সমবায় সমর্থিত'],
+  'home.heroTitle':['VERIFIED HELP.<br>FAIR PRICES.','சரிபார்க்கப்பட்ட உதவி.<br>நியாயமான விலை.','सत्यापित मदद।<br>उचित दाम।','যাচাই করা সাহায্য।<br>ন্যায্য দাম।'],
+  'home.heroBody':['Regulated fair pricing with 100% Aadhaar-verified union technicians.','100% ஆதார் சரிபார்க்கப்பட்ட சங்கத் தொழில்நுட்பர்களுடன் ஒழுங்குபடுத்தப்பட்ட நியாய விலை.','100% आधार-सत्यापित यूनियन तकनीशियनों के साथ विनियमित उचित मूल्य।','100% আধার-যাচাইকৃত ইউনিয়ন টেকনিশিয়ানদের সঙ্গে নিয়ন্ত্রিত ন্যায্য মূল্য।'],
+  'home.book':['Book a service','சேவையை முன்பதிவு செய்','सेवा बुक करें','পরিষেবা বুক করুন'],
+  'home.seeAll':['See all','அனைத்தும்','सभी देखें','সব দেখুন'],
+  'home.trusted':['Your trusted workers','உங்கள் நம்பகமான தொழிலாளர்கள்','आपके भरोसेमंद कामगार','আপনার বিশ্বস্ত কর্মীরা'],
+  'home.servedYou':['Served you','உங்களுக்குச் சேவை செய்தவர்','आपकी सेवा की','আপনাকে পরিষেবা দিয়েছেন'],
+  'home.why':['Why Worksetu?','ஏன் Worksetu?','Worksetu क्यों?','কেন Worksetu?'],
+  'why.coop.d':['Every worker is a certified member of a registered labour cooperative society','ஒவ்வொரு தொழிலாளரும் பதிவுசெய்யப்பட்ட தொழிலாளர் கூட்டுறவுச் சங்கத்தின் சான்றளிக்கப்பட்ட உறுப்பினர்','हर कामगार एक पंजीकृत श्रमिक सहकारी समिति का प्रमाणित सदस्य है','প্রত্যেক কর্মী একটি নিবন্ধিত শ্রমিক সমবায় সমিতির প্রত্যয়িত সদস্য'],
+  'why.cont.t':['Worker continuity','தொழிலாளர் தொடர்ச்சி','कामगार निरंतरता','কর্মীর ধারাবাহিকতা'],
+  'why.cont.d':['Smart dispatch prioritizes familiar local workers for reliable ongoing service','நம்பகமான தொடர் சேவைக்காக ஸ்மார்ட் அனுப்புதல் பழக்கமான உள்ளூர் தொழிலாளர்களுக்கு முன்னுரிமை அளிக்கிறது','भरोसेमंद निरंतर सेवा के लिए स्मार्ट डिस्पैच जाने-पहचाने स्थानीय कामगारों को प्राथमिकता देता है','নির্ভরযোগ্য ধারাবাহিক পরিষেবার জন্য স্মার্ট ডিসপ্যাচ পরিচিত স্থানীয় কর্মীদের অগ্রাধিকার দেয়'],
+  'why.fair.t':['Fair earnings','நியாயமான வருமானம்','उचित कमाई','ন্যায্য আয়'],
+  'why.fair.d':['Cooperatives ensure fair pay and social security benefits for all workers','அனைத்துத் தொழிலாளர்களுக்கும் நியாயமான ஊதியம் மற்றும் சமூகப் பாதுகாப்பு நலன்களைக் கூட்டுறவுகள் உறுதி செய்கின்றன','सहकारी समितियाँ सभी कामगारों के लिए उचित वेतन और सामाजिक सुरक्षा लाभ सुनिश्चित करती हैं','সমবায়গুলি সব কর্মীর জন্য ন্যায্য মজুরি ও সামাজিক সুরক্ষা সুবিধা নিশ্চিত করে'],
+  'home.impact':['Platform impact','தளத்தின் தாக்கம்','प्लेटफ़ॉर्म का प्रभाव','প্ল্যাটফর্মের প্রভাব'],
+  'impact.workers':['Workers','தொழிலாளர்கள்','कामगार','কর্মী'],
+  'impact.jobs':['Jobs done','முடிந்த வேலைகள்','पूरे काम','সম্পন্ন কাজ'],
+  'impact.coops':['Co-ops','கூட்டுறவுகள்','सहकारी','সমবায়'],
+  'verified':['Verified','சரிபார்க்கப்பட்டது','सत्यापित','যাচাইকৃত'],
+  'jobsCount':['{n} jobs','{n} வேலைகள்','{n} काम','{n}টি কাজ'],
+  // services
+  'svc.plumbing':['Plumbing','பிளம்பிங்','प्लंबिंग','প্লাম্বিং'],
+  'svc.plumbing.desc':['Leak repair, tap & pipe fitting, overhead tank cleaning','கசிவு சரிசெய்தல், குழாய் & பைப் பொருத்துதல், மேல்நிலைத் தொட்டி சுத்தம்','लीकेज मरम्मत, नल व पाइप फिटिंग, ओवरहेड टैंक की सफ़ाई','লিক মেরামত, কল ও পাইপ ফিটিং, ওভারহেড ট্যাঙ্ক পরিষ্কার'],
+  'svc.electrical':['Electrical','மின் வேலை','इलेक्ट्रिकल','ইলেকট্রিক্যাল'],
+  'svc.electrical.desc':['Wiring, switchboards, fan & light installation','வயரிங், சுவிட்ச்போர்டுகள், மின்விசிறி & விளக்கு பொருத்துதல்','वायरिंग, स्विचबोर्ड, पंखा व लाइट लगाना','ওয়্যারিং, সুইচবোর্ড, ফ্যান ও লাইট লাগানো'],
+  'svc.carpentry':['Carpentry','தச்சு வேலை','बढ़ईगीरी','কাঠমিস্ত্রির কাজ'],
+  'svc.carpentry.desc':['Furniture repair, door alignment, cabinet fitting','மரச்சாமான் பழுது, கதவு சீரமைப்பு, அலமாரி பொருத்துதல்','फ़र्नीचर मरम्मत, दरवाज़ा ठीक करना, कैबिनेट फिटिंग','আসবাব মেরামত, দরজা ঠিক করা, ক্যাবিনেট ফিটিং'],
+  'svc.painting':['Painting','பெயிண்டிங்','पेंटिंग','রং করা'],
+  'svc.painting.desc':['Room painting, touch-ups & waterproofing','அறை பெயிண்டிங், டச்-அப் & நீர்ப்புகாப்பு','कमरे की पेंटिंग, टच-अप और वॉटरप्रूफ़िंग','ঘর রং করা, টাচ-আপ ও ওয়াটারপ্রুফিং'],
+  'svc.cleaning':['Cleaning','சுத்தம் செய்தல்','सफ़ाई','পরিষ্কার'],
+  'svc.cleaning.desc':['Deep cleaning for kitchen, bathroom & bedrooms','சமையலறை, குளியலறை & படுக்கையறைகளுக்கு ஆழ்ந்த சுத்தம்','रसोई, बाथरूम और बेडरूम की गहरी सफ़ाई','রান্নাঘর, বাথরুম ও শোবার ঘরের গভীর পরিষ্কার'],
+  'svc.ac':['AC Repair','ஏசி பழுது','एसी मरम्मत','এসি মেরামত'],
+  'svc.ac.desc':['Servicing, gas top-up & installation','சர்வீஸ், கேஸ் நிரப்புதல் & பொருத்துதல்','सर्विसिंग, गैस टॉप-अप और इंस्टॉलेशन','সার্ভিসিং, গ্যাস টপ-আপ ও ইনস্টলেশন'],
+  'services.sub':['Regulated fair pricing','ஒழுங்குபடுத்தப்பட்ட நியாய விலை','विनियमित उचित मूल्य','নিয়ন্ত্রিত ন্যায্য মূল্য'],
+  'services.search':['Search services','சேவைகளைத் தேடுங்கள்','सेवाएँ खोजें','পরিষেবা খুঁজুন'],
+  'services.from':['From {price}','{price} முதல்','{price} से शुरू','{price} থেকে শুরু'],
+  // booking
+  'book.sub':['Book a verified technician','சரிபார்க்கப்பட்ட தொழில்நுட்பரை முன்பதிவு செய்யுங்கள்','सत्यापित तकनीशियन बुक करें','যাচাইকৃত টেকনিশিয়ান বুক করুন'],
+  'total':['Total','மொத்தம்','कुल','মোট'],
+  'book.confirm':['Confirm booking','முன்பதிவை உறுதிசெய்','बुकिंग पक्की करें','বুকিং নিশ্চিত করুন'],
+  'book.aadhaar':['Aadhaar verified','ஆதார் சரிபார்க்கப்பட்டது','आधार सत्यापित','আধার যাচাইকৃত'],
+  'book.fair':['Fair price regulated','நியாய விலை ஒழுங்குபடுத்தப்பட்டது','उचित मूल्य विनियमित','ন্যায্য মূল্য নিয়ন্ত্রিত'],
+  'book.assigned':['Assigned worker','ஒதுக்கப்பட்ட தொழிலாளர்','नियुक्त कामगार','নির্ধারিত কর্মী'],
+  'book.continuity':['Continuity match','தொடர்ச்சிப் பொருத்தம்','निरंतरता मिलान','ধারাবাহিকতা মিল'],
+  'book.exp':['{jobs} jobs • {yrs} yrs','{jobs} வேலைகள் • {yrs} ஆண்டுகள்','{jobs} काम • {yrs} वर्ष','{jobs}টি কাজ • {yrs} বছর'],
+  'book.date':['Select date','தேதியைத் தேர்ந்தெடுக்கவும்','तारीख़ चुनें','তারিখ বেছে নিন'],
+  'book.time':['Select time','நேரத்தைத் தேர்ந்தெடுக்கவும்','समय चुनें','সময় বেছে নিন'],
+  'book.address':['Address','முகவரி','पता','ঠিকানা'],
+  'book.change':['Change','மாற்று','बदलें','পরিবর্তন'],
+  'book.home':['Home','வீடு','घर','বাড়ি'],
+  'book.price':['Price details','விலை விவரங்கள்','मूल्य विवरण','মূল্যের বিবরণ'],
+  'book.charge':['Service charge','சேவைக் கட்டணம்','सेवा शुल्क','পরিষেবা চার্জ'],
+  'book.welfare':['Cooperative welfare fee','கூட்டுறவு நலக் கட்டணம்','सहकारी कल्याण शुल्क','সমবায় কল্যাণ ফি'],
+  'book.commission':['Platform commission','தளக் கமிஷன்','प्लेटफ़ॉर्म कमीशन','প্ল্যাটফর্ম কমিশন'],
+  'book.note':['100% of the service charge goes to the worker','சேவைக் கட்டணத்தின் 100% தொழிலாளருக்கே செல்கிறது','सेवा शुल्क का 100% कामगार को जाता है','পরিষেবা চার্জের 100% কর্মীর কাছে যায়'],
+  // dates
+  'day.today':['Today','இன்று','आज','আজ'],
+  'day.tomorrow':['Tomorrow','நாளை','कल','আগামীকাল'],
+  'day.yesterday':['Yesterday','நேற்று','बीता कल','গতকাল'],
+  'days.week':['Sun,Mon,Tue,Wed,Thu,Fri,Sat','ஞாயி,திங்,செவ்,புத,வியா,வெள்,சனி','रवि,सोम,मंगल,बुध,गुरु,शुक्र,शनि','রবি,সোম,মঙ্গল,বুধ,বৃহঃ,শুক্র,শনি'],
+  'days.initials':['M,T,W,T,F,S,S','தி,செ,பு,வி,வெ,ச,ஞா','सो,मं,बु,गु,शु,श,र','সো,ম,বু,বৃ,শু,শ,র'],
+  'months':['Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec','ஜன,பிப்,மார்,ஏப்,மே,ஜூன்,ஜூலை,ஆக,செப்,அக்,நவ,டிச','जन,फ़र,मार्च,अप्रै,मई,जून,जुला,अग,सित,अक्टू,नव,दिस','জানু,ফেব্রু,মার্চ,এপ্রি,মে,জুন,জুলা,আগ,সেপ্টে,অক্টো,নভে,ডিসে'],
+  'slot.in30':['in 30 min','30 நிமிடத்தில்','30 मिनट में','30 মিনিটে'],
+  // booking progress
+  'step0':['Booking requested','முன்பதிவு கோரப்பட்டது','बुकिंग का अनुरोध किया गया','বুকিং অনুরোধ করা হয়েছে'],
+  'step0.d':['Sent to local cooperative','உள்ளூர் கூட்டுறவுக்கு அனுப்பப்பட்டது','स्थानीय सहकारी समिति को भेजा गया','স্থানীয় সমবায়ে পাঠানো হয়েছে'],
+  'step1':['Worker assigned','தொழிலாளர் ஒதுக்கப்பட்டார்','कामगार नियुक्त','কর্মী নির্ধারিত'],
+  'step1.d':['Verified union member dispatched','சரிபார்க்கப்பட்ட சங்க உறுப்பினர் அனுப்பப்பட்டார்','सत्यापित यूनियन सदस्य भेजा गया','যাচাইকৃত ইউনিয়ন সদস্য পাঠানো হয়েছে'],
+  'step2':['On the way','வந்துகொண்டிருக்கிறார்','रास्ते में','পথে আছেন'],
+  'step2.d':['Worker is travelling to you','தொழிலாளர் உங்களிடம் வந்துகொண்டிருக்கிறார்','कामगार आपके पास आ रहा है','কর্মী আপনার কাছে আসছেন'],
+  'step3':['Service in progress','சேவை நடைபெறுகிறது','सेवा जारी है','পরিষেবা চলছে'],
+  'step3.d':['Share OTP to start the job','வேலையைத் தொடங்க OTP-ஐப் பகிரவும்','काम शुरू करने के लिए OTP साझा करें','কাজ শুরু করতে OTP শেয়ার করুন'],
+  'step4':['Completed','முடிந்தது','पूरा हुआ','সম্পন্ন'],
+  'step4.d':['Payment settled to cooperative ledger','கட்டணம் கூட்டுறவுக் கணக்கேட்டில் செலுத்தப்பட்டது','भुगतान सहकारी खाते में जमा किया गया','পেমেন্ট সমবায় খাতায় জমা হয়েছে'],
+  // booking confirmed
+  'success.eyebrow':['Booking confirmed','முன்பதிவு உறுதிசெய்யப்பட்டது','बुकिंग पक्की हो गई','বুকিং নিশ্চিত হয়েছে'],
+  'success.title':["You're all set!",'எல்லாம் தயார்!','सब तैयार है!','সব প্রস্তুত!'],
+  'success.body':['{worker} from {coop} will arrive {date} at {slot}.','{coop} அமைப்பைச் சேர்ந்த {worker} {date} {slot} மணிக்கு வருவார்.','{coop} से {worker} {date} {slot} बजे पहुँचेंगे।','{coop} থেকে {worker} {date} {slot}-এ পৌঁছবেন।'],
+  'success.id':['Booking ID','முன்பதிவு எண்','बुकिंग आईडी','বুকিং আইডি'],
+  'success.service':['Service','சேவை','सेवा','পরিষেবা'],
+  'success.amount':['Amount','தொகை','राशि','পরিমাণ'],
+  'success.track':['Track booking','முன்பதிவைக் கண்காணி','बुकिंग ट्रैक करें','বুকিং ট্র্যাক করুন'],
+  'success.home':['Back to home','முகப்புக்குத் திரும்பு','होम पर वापस जाएँ','হোমে ফিরে যান'],
+  // bookings
+  'bookings.title':['My Bookings','என் முன்பதிவுகள்','मेरी बुकिंग','আমার বুকিং'],
+  'bookings.sub':['Track dispatches & history','அனுப்புதல்கள் & வரலாற்றைக் கண்காணிக்கவும்','डिस्पैच और इतिहास ट्रैक करें','ডিসপ্যাচ ও ইতিহাস ট্র্যাক করুন'],
+  'bookings.active':['Active','செயலில்','सक्रिय','সক্রিয়'],
+  'bookings.empty.active':['No active bookings','செயலில் உள்ள முன்பதிவுகள் இல்லை','कोई सक्रिय बुकिंग नहीं','কোনো সক্রিয় বুকিং নেই'],
+  'bookings.empty.past':['No completed bookings','முடிந்த முன்பதிவுகள் இல்லை','कोई पूरी हुई बुकिंग नहीं','কোনো সম্পন্ন বুকিং নেই'],
+  'bookings.emptyBody':['Book a verified cooperative worker in seconds.','சில நொடிகளில் சரிபார்க்கப்பட்ட கூட்டுறவுத் தொழிலாளரை முன்பதிவு செய்யுங்கள்.','कुछ ही सेकंड में सत्यापित सहकारी कामगार बुक करें।','কয়েক সেকেন্ডে যাচাইকৃত সমবায় কর্মী বুক করুন।'],
+  'bookings.browse':['Browse services','சேவைகளைப் பார்','सेवाएँ देखें','পরিষেবা দেখুন'],
+  // tracking
+  'track.title':['Track Booking','முன்பதிவைக் கண்காணி','बुकिंग ट्रैक करें','বুকিং ট্র্যাক করুন'],
+  'track.done':['Done','முடிந்தது','हो गया','হয়ে গেছে'],
+  'track.simulate':['Simulate next update','அடுத்த நிலையை உருவகப்படுத்து','अगला अपडेट सिमुलेट करें','পরবর্তী আপডেট সিমুলেট করুন'],
+  'track.completed':['✅ Service completed','✅ சேவை முடிந்தது','✅ सेवा पूरी हुई','✅ পরিষেবা সম্পন্ন'],
+  'track.atHome':['🔧 Worker at your home','🔧 தொழிலாளர் உங்கள் வீட்டில்','🔧 कामगार आपके घर पर है','🔧 কর্মী আপনার বাড়িতে'],
+  'track.eta':['🕒 ETA {n} min','🕒 {n} நிமிடத்தில் வருகை','🕒 {n} मिनट में पहुँचेंगे','🕒 {n} মিনিটে পৌঁছবেন'],
+  'track.calling':['Calling {name} (simulated)','{name}-ஐ அழைக்கிறது (உருவகம்)','{name} को कॉल किया जा रहा है (सिमुलेटेड)','{name}-কে কল করা হচ্ছে (সিমুলেটেড)'],
+  'track.otp':['Start OTP','தொடக்க OTP','शुरुआती OTP','শুরুর OTP'],
+  'track.otpHint':['Share when work begins','வேலை தொடங்கும்போது பகிரவும்','काम शुरू होने पर साझा करें','কাজ শুরু হলে শেয়ার করুন'],
+  'track.status':['Status','நிலை','स्थिति','অবস্থা'],
+  // notifications
+  'n.enroute.t':['{name} is on the way','{name} வந்துகொண்டிருக்கிறார்','{name} रास्ते में हैं','{name} পথে আছেন'],
+  'n.enroute.b':['{svc} service • ETA {n} min','{svc} சேவை • {n} நிமிடத்தில் வருகை','{svc} सेवा • {n} मिनट में पहुँचेंगे','{svc} পরিষেবা • {n} মিনিটে পৌঁছবেন'],
+  'n.dividend.t':['Cooperative dividend credited','கூட்டுறவு ஈவுத்தொகை வரவு வைக்கப்பட்டது','सहकारी लाभांश जमा हुआ','সমবায় লভ্যাংশ জমা হয়েছে'],
+  'n.dividend.b':['{amt} shared with {n} member workers','{amt} {n} உறுப்பினர் தொழிலாளர்களுடன் பகிரப்பட்டது','{amt} {n} सदस्य कामगारों में बाँटा गया','{amt} {n} জন সদস্য কর্মীর মধ্যে ভাগ করা হয়েছে'],
+  'n.verified.t':['Worker verified','தொழிலாளர் சரிபார்க்கப்பட்டார்','कामगार सत्यापित','কর্মী যাচাইকৃত'],
+  'n.verified.b':['{name} renewed Aadhaar verification','{name} ஆதார் சரிபார்ப்பைப் புதுப்பித்தார்','{name} ने आधार सत्यापन नवीनीकृत किया','{name} আধার যাচাইকরণ নবীকরণ করেছেন'],
+  'n.booked.t':['Booking confirmed','முன்பதிவு உறுதிசெய்யப்பட்டது','बुकिंग पक्की हो गई','বুকিং নিশ্চিত হয়েছে'],
+  'n.booked.b':['{svc} • {name} assigned','{svc} • {name} ஒதுக்கப்பட்டார்','{svc} • {name} नियुक्त','{svc} • {name} নির্ধারিত'],
+  'time.now':['now','இப்போது','अभी','এখন'],
+  'time.m':['{n}m','{n} நிமி','{n} मि','{n} মি'],
+  'time.h':['{n}h','{n} மணி','{n} घं','{n} ঘ'],
+  'time.d':['{n}d','{n} நாள்','{n} दि','{n} দিন'],
+  // worker
+  'worker.member':['{coop} • Member #{id}','{coop} • உறுப்பினர் #{id}','{coop} • सदस्य #{id}','{coop} • সদস্য #{id}'],
+  'worker.online':['You are online','நீங்கள் ஆன்லைனில் உள்ளீர்கள்','आप ऑनलाइन हैं','আপনি অনলাইনে আছেন'],
+  'worker.offline':['You are offline','நீங்கள் ஆஃப்லைனில் உள்ளீர்கள்','आप ऑफ़लाइन हैं','আপনি অফলাইনে আছেন'],
+  'worker.onlineSub':['Receiving dispatch requests nearby','அருகிலுள்ள பணிக் கோரிக்கைகளைப் பெறுகிறீர்கள்','आस-पास के डिस्पैच अनुरोध मिल रहे हैं','কাছাকাছি ডিসপ্যাচ অনুরোধ পাচ্ছেন'],
+  'worker.offlineSub':['Go online to receive jobs','வேலைகளைப் பெற ஆன்லைனுக்கு வாருங்கள்','काम पाने के लिए ऑनलाइन हों','কাজ পেতে অনলাইনে আসুন'],
+  'kpi.rating':['Rating','மதிப்பீடு','रेटिंग','রেটিং'],
+  'req.new':['New dispatch request','புதிய பணிக் கோரிக்கை','नया डिस्पैच अनुरोध','নতুন ডিসপ্যাচ অনুরোধ'],
+  'req.earn':['You earn (100% retained)','உங்கள் வருமானம் (100% உங்களுக்கே)','आपकी कमाई (100% आपकी)','আপনার আয় (100% আপনার)'],
+  'req.decline':['Decline','நிராகரி','अस्वीकार करें','প্রত্যাখ্যান'],
+  'req.accept':['Accept job','வேலையை ஏற்றுக்கொள்','काम स्वीकार करें','কাজ গ্রহণ করুন'],
+  'req.looking':['Looking for nearby jobs…','அருகிலுள்ள வேலைகளைத் தேடுகிறது…','आस-पास के काम खोजे जा रहे हैं…','কাছাকাছি কাজ খোঁজা হচ্ছে…'],
+  'req.lookingSub':['Requests appear here instantly','கோரிக்கைகள் உடனே இங்கே தோன்றும்','अनुरोध यहाँ तुरंत दिखेंगे','অনুরোধ এখানে সঙ্গে সঙ্গে দেখা যাবে'],
+  'worker.next':['Next job','அடுத்த வேலை','अगला काम','পরবর্তী কাজ'],
+  'worker.allJobs':['All jobs','அனைத்து வேலைகள்','सभी काम','সব কাজ'],
+  'worker.navigate':['Navigate','வழிகாட்டு','नेविगेट करें','নেভিগেট'],
+  'worker.navToast':['Opening navigation (simulated)','வழிகாட்டல் திறக்கிறது (உருவகம்)','नेविगेशन खुल रहा है (सिमुलेटेड)','নেভিগেশন খোলা হচ্ছে (সিমুলেটেড)'],
+  'worker.complete':['Complete','முடி','पूरा करें','সম্পন্ন করুন'],
+  'worker.start':['Start job','வேலையைத் தொடங்கு','काम शुरू करें','কাজ শুরু করুন'],
+  'worker.benefits':['Cooperative benefits','கூட்டுறவு நலன்கள்','सहकारी लाभ','সমবায় সুবিধা'],
+  'ben.dividend':['Dividend','ஈவுத்தொகை','लाभांश','লভ্যাংশ'],
+  'ben.quarter':['This quarter','இந்தக் காலாண்டு','इस तिमाही','এই ত্রৈমাসিক'],
+  'ben.health':['Healthcare','சுகாதாரம்','स्वास्थ्य सेवा','স্বাস্থ্যসেবা'],
+  'ben.family':['Family cover','குடும்பக் காப்பீடு','परिवार कवर','পরিবার কভার'],
+  'ben.collective':['Collective','கூட்டமைப்பு','सामूहिक','সম্মিলিত'],
+  'ben.members':['Union members','சங்க உறுப்பினர்கள்','यूनियन सदस्य','ইউনিয়ন সদস্য'],
+  'ben.insurance':['Insurance','காப்பீடு','बीमा','বিমা'],
+  'ben.insValue':['₹5 L','₹5 லட்சம்','₹5 लाख','₹5 লাখ'],
+  'ben.accident':['Accident cover','விபத்துக் காப்பீடு','दुर्घटना कवर','দুর্ঘটনা কভার'],
+  'status.progress':['In progress','நடைபெறுகிறது','जारी है','চলছে'],
+  'status.upcoming':['Upcoming','வரவிருக்கிறது','आगामी','আসন্ন'],
+  'status.completed':['Completed','முடிந்தது','पूरा हुआ','সম্পন্ন'],
+  'status.enroute':['En route','வழியில்','रास्ते में','পথে'],
+  'status.assigning':['Assigning','ஒதுக்கப்படுகிறது','सौंपा जा रहा है','নির্ধারণ চলছে'],
+  'job.tap':['Kitchen tap replacement','சமையலறைக் குழாய் மாற்றுதல்','रसोई का नल बदलना','রান্নাঘরের কল বদল'],
+  'job.pipe':['Bathroom pipe leakage','குளியலறைக் குழாய்க் கசிவு','बाथरूम पाइप में लीकेज','বাথরুমের পাইপে লিক'],
+  'job.tank':['Overhead tank cleaning','மேல்நிலைத் தொட்டி சுத்தம்','ओवरहेड टैंक की सफ़ाई','ওভারহেড ট্যাঙ্ক পরিষ্কার'],
+  'job.basin':['Wash basin fitting','வாஷ் பேசின் பொருத்துதல்','वॉश बेसिन फिटिंग','ওয়াশ বেসিন ফিটিং'],
+  'job.sink':['Kitchen sink leakage','சமையலறை சிங்க் கசிவு','रसोई सिंक में लीकेज','রান্নাঘরের সিঙ্কে লিক'],
+  'job.geyser':['Geyser inlet pipe repair','கீசர் உள்வரும் குழாய் பழுது','गीज़र इनलेट पाइप मरम्मत','গিজারের ইনলেট পাইপ মেরামত'],
+  'job.flush':['Flush tank not working','ஃப்ளஷ் டேங்க் வேலை செய்யவில்லை','फ़्लश टैंक काम नहीं कर रहा','ফ্লাশ ট্যাঙ্ক কাজ করছে না'],
+  'jobs.title':['My Jobs','என் வேலைகள்','मेरे काम','আমার কাজ'],
+  'jobs.sub':['Dispatch assignments','பணி ஒதுக்கீடுகள்','डिस्पैच असाइनमेंट','ডিসপ্যাচ অ্যাসাইনমেন্ট'],
+  'jobs.markDone':['Mark complete','முடிந்ததாகக் குறி','पूरा चिह्नित करें','সম্পন্ন হিসেবে চিহ্নিত করুন'],
+  'earn.sub':['Cooperative ledger','கூட்டுறவுக் கணக்கேடு','सहकारी खाता-बही','সমবায় খাতা'],
+  'earn.week':['This week','இந்த வாரம்','इस सप्ताह','এই সপ্তাহ'],
+  'earn.retention':['100% fee retention • zero platform commission','100% கட்டணம் உங்களுக்கே • தளக் கமிஷன் இல்லை','100% शुल्क आपका • शून्य प्लेटफ़ॉर्म कमीशन','100% ফি আপনার • শূন্য প্ল্যাটফর্ম কমিশন'],
+  'earn.daily':['Daily earnings','தினசரி வருமானம்','दैनिक कमाई','দৈনিক আয়'],
+  'earn.trend':['▲ 18% vs last week','▲ கடந்த வாரத்தை விட 18%','▲ पिछले सप्ताह से 18%','▲ গত সপ্তাহের চেয়ে 18%'],
+  'earn.ledger':['Ledger settlements','கணக்கேட்டுத் தீர்வுகள்','खाता निपटान','খাতার নিষ্পত্তি'],
+  'earn.dividend':['Quarterly dividend','காலாண்டு ஈவுத்தொகை','तिमाही लाभांश','ত্রৈমাসিক লভ্যাংশ'],
+  'earn.withdraw':['Withdraw to bank','வங்கிக்குப் பணம் எடு','बैंक में निकालें','ব্যাংকে তুলুন'],
+  'earn.withdrawToast':['Withdrawal requested (simulated)','பணம் எடுக்கக் கோரப்பட்டது (உருவகம்)','निकासी का अनुरोध किया गया (सिमुलेटेड)','টাকা তোলার অনুরোধ করা হয়েছে (সিমুলেটেড)'],
+  // admin
+  'admin.title':['Registrar authority.','பதிவாளர் அதிகாரம்.','रजिस्ट्रार प्राधिकरण।','রেজিস্ট্রার কর্তৃপক্ষ।'],
+  'kpi.skilled':['Skilled workers','திறமையான தொழிலாளர்கள்','कुशल कामगार','দক্ষ কর্মী'],
+  'kpi.dispatched':['Dispatched','அனுப்பப்பட்டவை','डिस्पैच किए गए','পাঠানো হয়েছে'],
+  'kpi.completedJobs':['Completed jobs','முடிந்த வேலைகள்','पूरे हुए काम','সম্পন্ন কাজ'],
+  'kpi.coops':['Cooperatives','கூட்டுறவுகள்','सहकारी समितियाँ','সমবায়'],
+  'kpi.activeCoops':['Active co-ops','செயலில் உள்ள கூட்டுறவுகள்','सक्रिय सहकारी','সক্রিয় সমবায়'],
+  'kpi.kyc':['Aadhaar KYC','ஆதார் KYC','आधार KYC','আধার KYC'],
+  'admin.activity':['Live activity','நேரடிச் செயல்பாடு','लाइव गतिविधि','লাইভ কার্যকলাপ'],
+  'feed.assigned':['Dispatch {id} assigned','அனுப்புதல் {id} ஒதுக்கப்பட்டது','डिस्पैच {id} सौंपा गया','ডিসপ্যাচ {id} নির্ধারিত'],
+  'feed.completed':['Job {id} completed','வேலை {id} முடிந்தது','काम {id} पूरा हुआ','কাজ {id} সম্পন্ন'],
+  'feed.settled':['{amt} settled to ledger','{amt} கணக்கேட்டில் செலுத்தப்பட்டது','{amt} खाते में जमा','{amt} খাতায় জমা হয়েছে'],
+  'feed.application':['New member application','புதிய உறுப்பினர் விண்ணப்பம்','नया सदस्य आवेदन','নতুন সদস্য আবেদন'],
+  'feed.payout':['Dividend payout processed','ஈவுத்தொகை வழங்கல் செயலாக்கப்பட்டது','लाभांश भुगतान संसाधित','লভ্যাংশ প্রদান সম্পন্ন'],
+  'feed.payoutBody':['{amt} across {n} co-ops','{n} கூட்டுறவுகளுக்கு {amt}','{n} सहकारी समितियों में {amt}','{n}টি সমবায়ে {amt}'],
+  'admin.coopMeta':['{city} • {n} members','{city} • {n} உறுப்பினர்கள்','{city} • {n} सदस्य','{city} • {n} জন সদস্য'],
+  'members.title':['Member Register','உறுப்பினர் பதிவேடு','सदस्य रजिस्टर','সদস্য রেজিস্টার'],
+  'members.sub':['{n} listed • {p} pending','{n} பட்டியலில் • {p} நிலுவையில்','{n} सूचीबद्ध • {p} लंबित','{n} তালিকাভুক্ত • {p} অপেক্ষমাণ'],
+  'members.search':['Search members','உறுப்பினர்களைத் தேடுங்கள்','सदस्य खोजें','সদস্য খুঁজুন'],
+  'members.approve':['Approve','அங்கீகரி','स्वीकृत करें','অনুমোদন করুন'],
+  'dispatch.title':['Dispatch Monitor','அனுப்புதல் கண்காணிப்பு','डिस्पैच मॉनिटर','ডিসপ্যাচ মনিটর'],
+  'dispatch.sub':['Nationwide live tracking','நாடு தழுவிய நேரடிக் கண்காணிப்பு','देशव्यापी लाइव ट्रैकिंग','দেশজুড়ে লাইভ ট্র্যাকিং'],
+  'dispatch.all':['All','அனைத்தும்','सभी','সব'],
+  'dispatch.live':['Live','நேரலை','लाइव','লাইভ'],
+  // profile & settings
+  'profile.master':['Master','முதன்மை','मास्टर','মাস্টার'],
+  'profile.switch':['Switch portal','தளத்தை மாற்று','पोर्टल बदलें','পোর্টাল বদলান'],
+  'profile.masterOnly':['Master only','முதன்மைக் கணக்கிற்கு மட்டும்','केवल मास्टर','শুধু মাস্টার'],
+  'profile.settings':['Settings','அமைப்புகள்','सेटिंग्स','সেটিংস'],
+  'profile.dark':['Dark mode','இருண்ட பயன்முறை','डार्क मोड','ডার্ক মোড'],
+  'profile.language':['Language','மொழி','भाषा','ভাষা'],
+  'profile.kyc':['Verification & KYC','சரிபார்ப்பு & KYC','सत्यापन और KYC','যাচাইকরণ ও KYC'],
+  'profile.kycToast':['Aadhaar KYC verified ✓','ஆதார் KYC சரிபார்க்கப்பட்டது ✓','आधार KYC सत्यापित ✓','আধার KYC যাচাইকৃত ✓'],
+  'profile.help':['Help & support','உதவி & ஆதரவு','सहायता और समर्थन','সাহায্য ও সহায়তা'],
+  'profile.helpToast':['Help centre (simulated)','உதவி மையம் (உருவகம்)','सहायता केंद्र (सिमुलेटेड)','সহায়তা কেন্দ্র (সিমুলেটেড)'],
+  'profile.logout':['Log out','வெளியேறு','लॉग आउट','লগ আউট'],
+  'profile.version':['Worksetu Local Sandbox v1.0 • No production connection','Worksetu உள்ளூர் சோதனைச் சூழல் v1.0 • உற்பத்தி இணைப்பு இல்லை','Worksetu लोकल सैंडबॉक्स v1.0 • कोई प्रोडक्शन कनेक्शन नहीं','Worksetu লোকাল স্যান্ডবক্স v1.0 • কোনো প্রোডাকশন সংযোগ নেই'],
+  // toasts
+  'toast.lang':['Language: {lang}','மொழி: {lang}','भाषा: {lang}','ভাষা: {lang}'],
+  'toast.newReq':['New dispatch request nearby','அருகில் புதிய பணிக் கோரிக்கை','पास में नया डिस्पैच अनुरोध','কাছাকাছি নতুন ডিসপ্যাচ অনুরোধ'],
+  'toast.expired':['Request expired','கோரிக்கை காலாவதியானது','अनुरोध समाप्त हो गया','অনুরোধের মেয়াদ শেষ'],
+  'toast.readAll':['All caught up','அனைத்தும் படிக்கப்பட்டன','सब देख लिया','সব দেখা হয়ে গেছে'],
+  'toast.online':['You are now online','நீங்கள் இப்போது ஆன்லைனில் உள்ளீர்கள்','अब आप ऑनलाइन हैं','আপনি এখন অনলাইনে'],
+  'toast.offline':['You are now offline','நீங்கள் இப்போது ஆஃப்லைனில் உள்ளீர்கள்','अब आप ऑफ़लाइन हैं','আপনি এখন অফলাইনে'],
+  'toast.accepted':['Job accepted • customer notified','வேலை ஏற்கப்பட்டது • வாடிக்கையாளருக்குத் தெரிவிக்கப்பட்டது','काम स्वीकार • ग्राहक को सूचित किया गया','কাজ গৃহীত • গ্রাহককে জানানো হয়েছে'],
+  'toast.declined':['Request declined','கோரிக்கை நிராகரிக்கப்பட்டது','अनुरोध अस्वीकार किया गया','অনুরোধ প্রত্যাখ্যাত'],
+  'toast.started':['Job started • OTP verified','வேலை தொடங்கியது • OTP சரிபார்க்கப்பட்டது','काम शुरू • OTP सत्यापित','কাজ শুরু • OTP যাচাইকৃত'],
+  'toast.credited':['{amt} credited to cooperative ledger','{amt} கூட்டுறவுக் கணக்கேட்டில் வரவு வைக்கப்பட்டது','{amt} सहकारी खाते में जमा','{amt} সমবায় খাতায় জমা হয়েছে'],
+  'toast.approved':['{name} approved as member','{name} உறுப்பினராக அங்கீகரிக்கப்பட்டார்','{name} सदस्य के रूप में स्वीकृत','{name} সদস্য হিসেবে অনুমোদিত'],
+  'toast.switched':['Switched to {role} portal','{role} தளத்திற்கு மாற்றப்பட்டது','{role} पोर्टल पर स्विच किया गया','{role} পোর্টালে বদল করা হয়েছে'],
+  'toast.signedIn':['Signed in as {name}','{name} ஆக உள்நுழைந்தீர்கள்','{name} के रूप में साइन इन किया','{name} হিসেবে সাইন ইন করেছেন']
+};
+
+// Translate a key in the active language, filling {placeholders} from vars.
+// Falls back to English, then to the key itself (and warns) so gaps are visible in dev.
+function t(key, vars){
+  const row = STR[key];
+  if(!row){ console.warn('[i18n] missing key:', key); return key; }
+  const s = row[LANG_IDS.indexOf(S.lang)] || row[0];
+  return vars ? s.replace(/\{(\w+)\}/g, (m, k) => k in vars ? vars[k] : m) : s;
+}
+const tl = key => t(key).split(',');
+const langPicker = (cls='seg lang-seg') => `<div class="${cls}" role="group" aria-label="${t('profile.language')}">${LANGS.map(([id,label])=>`<button class="${S.lang===id?'on':''}" lang="${id}" data-a="lang" data-v="${id}" aria-pressed="${S.lang===id}">${label}</button>`).join('')}</div>`;
+
+// ---- persistence (per-tab, optional; language is also remembered across tabs) ----
+function save(){ try{ sessionStorage.setItem('ws-local', JSON.stringify({user:!!S.user, role:S.role, theme:S.theme, lang:S.lang})); }catch(e){} try{ localStorage.setItem('ws-lang', S.lang); }catch(e){} }
+function load(){
+  try{ const d=JSON.parse(sessionStorage.getItem('ws-local')||'null'); if(d){ if(d.user){S.user=MASTER; S.splashDone=true;} S.role=d.role||'customer'; S.theme=d.theme||'light'; S.lang=d.lang||'en'; } }catch(e){}
+  try{ S.lang=localStorage.getItem('ws-lang')||S.lang; }catch(e){}
+  S.lang=normLang(S.lang);
+}
 
 /* ===================== COMPONENTS ===================== */
 const statusbar = (blue) => { const t=new Date(); const hh=t.getHours()%12||12, mm=String(t.getMinutes()).padStart(2,'0');
@@ -489,27 +797,27 @@ const statusbar = (blue) => { const t=new Date(); const hh=t.getHours()%12||12, 
 
 const brandBar = () => `<div class="topbar">
   <div class="brand">${LOGO(38)}<span class="chip">SIH 2026</span></div>
-  <button class="icon-btn" data-a="theme" aria-label="Theme">${I(S.theme==='dark'?'sun':'moon',18)}</button>
-  <button class="icon-btn" data-a="push" data-v="notifications" aria-label="Notifications">${I('bell',18)}${S.notifs.some(n=>n.unread)?'<span class="dot"></span>':''}</button>
+  <button class="icon-btn" data-a="theme" aria-label="${t('a11y.theme')}">${I(S.theme==='dark'?'sun':'moon',18)}</button>
+  <button class="icon-btn" data-a="push" data-v="notifications" aria-label="${t('nav.notifications')}">${I('bell',18)}${S.notifs.some(n=>n.unread)?'<span class="dot"></span>':''}</button>
 </div>`;
 
 const titleBar = (title, sub, back=true, right='') => `<div class="topbar">
-  ${back?`<button class="icon-btn" data-a="back" aria-label="Back">${I('chevL',20)}</button>`:''}
+  ${back?`<button class="icon-btn" data-a="back" aria-label="${t('a11y.back')}">${I('chevL',20)}</button>`:''}
   <div class="grow"><h1 style="flex:none">${title}</h1>${sub?`<div class="sub">${sub}</div>`:''}</div>${right}
 </div>`;
 
 const avatar = (init, color, size) => `<div class="avatar" style="background:${color}${size?`;width:${size}px;height:${size}px;font-size:${size*.34}px;border-radius:${size*.32}px`:''}">${init}</div>`;
 
 const NAVS = {
-  customer:[['home','home','Home'],['services','grid','Services'],['bookings','calendar','Bookings'],['profile','user','Profile']],
-  worker:[['home','home','Dashboard'],['jobs','briefcase','Jobs'],['earnings','wallet','Earnings'],['profile','user','Profile']],
-  admin:[['home','chart','Console'],['members','users','Members'],['dispatch','activity','Dispatch'],['profile','user','Profile']]
+  customer:[['home','home','home'],['services','grid','services'],['bookings','calendar','bookings'],['profile','user','profile']],
+  worker:[['home','home','dashboard'],['jobs','briefcase','jobs'],['earnings','wallet','earnings'],['profile','user','profile']],
+  admin:[['home','chart','console'],['members','users','members'],['dispatch','activity','dispatch'],['profile','user','profile']]
 };
 const bottomNav = () => `<nav class="bottomnav">${NAVS[S.role].map(([id,ic,label])=>{
   let badge=''; if(S.role==='customer'&&id==='bookings'){const n=S.bookings.filter(b=>b.step<4).length; if(n) badge=`<span class="nav-badge">${n}</span>`;}
   if(S.role==='worker'&&id==='jobs'){const n=S.jobs.filter(j=>j.status!=='done').length; if(n) badge=`<span class="nav-badge">${n}</span>`;}
   if(S.role==='admin'&&id==='members'){const n=S.members.filter(m=>m.status==='pending').length; if(n) badge=`<span class="nav-badge">${n}</span>`;}
-  return `<button class="nav-item ${S.tab===id&&!S.stack.length?'active':''}" data-a="tab" data-v="${id}"><span class="pill">${I(ic,21)}</span>${label}${badge}</button>`;}).join('')}</nav>`;
+  return `<button class="nav-item ${S.tab===id&&!S.stack.length?'active':''}" data-a="tab" data-v="${id}"><span class="pill">${I(ic,21)}</span>${t('nav.'+label)}${badge}</button>`;}).join('')}</nav>`;
 
 /* ===================== SCREENS ===================== */
 const SCREENS = {};
@@ -517,36 +825,35 @@ const SCREENS = {};
 // ---------- LOGIN ----------
 SCREENS.login = () => {
   const r=S.loginRole;
-  const copy={customer:['01 — Customer Access','Welcome<br>back.','Household Citizen Portal'],
-              worker:['01 — Worker Access','Cooperative<br>portal.','Worksetu Federation Worker Portal'],
-              admin:['Management Console','Registrar<br>authority.','Federation Board Control Panel']}[r];
+  const copy=['eyebrow','title','sub'].map(k=>t('login.'+r+'.'+k));
   return { raw:true, html:`${statusbar(true)}<div class="content anim-${S.anim}"><div>
     <div class="login-hero">
-      <span class="pill-light"><i></i>Ministry of Cooperation • Labour Federation</span>
+      ${langPicker('hero-langs')}
+      <span class="pill-light"><i></i>${t('login.pill')}</span>
       <div class="eyebrow" style="color:#bfdbfe;margin-top:22px">${copy[0]}</div>
       <div class="h-display" style="margin-top:6px">${copy[1]}</div>
     </div>
     <div class="card login-card">
       <div class="seg" style="margin-bottom:16px">
-        ${['customer','worker','admin'].map(x=>`<button class="${r===x?'on':''}" data-a="login-role" data-v="${x}">${{customer:'Customer',worker:'Worker',admin:'Admin'}[x]}</button>`).join('')}
+        ${['customer','worker','admin'].map(x=>`<button class="${r===x?'on':''}" data-a="login-role" data-v="${x}">${t('role.'+x)}</button>`).join('')}
       </div>
       <div style="margin-bottom:16px">${LOGO(36)}
-        <div style="margin-top:12px"><div class="eyebrow" style="font-size:13px">${{customer:'Customer',worker:'Worker',admin:'Admin'}[r]} Login</div><div class="t-sub" style="margin:0;font-size:11.5px">${copy[2]}</div></div></div>
+        <div style="margin-top:12px"><div class="eyebrow" style="font-size:13px">${t('login.heading.'+r)}</div><div class="t-sub" style="margin:0;font-size:11.5px">${copy[2]}</div></div></div>
       <form id="login-form" autocomplete="off">
-        <div class="field"><label>Enter email or phone number</label><div class="input">${I('mail',18)}<input id="lg-user" placeholder="e.g. master@worksetu.local" inputmode="email"></div></div>
-        <div class="field"><label>Enter password</label><div class="input">${I('lock',18)}<input id="lg-pass" type="password" placeholder="••••••••"><button type="button" data-a="toggle-pass" style="color:var(--faint)">${I('eye',18)}</button></div></div>
-        <div class="err" id="lg-err">Invalid credentials. Use the local master account below.</div>
-        <button class="btn btn-primary" type="submit">Sign in</button>
+        <div class="field"><label>${t('login.user')}</label><div class="input">${I('mail',18)}<input id="lg-user" placeholder="${t('login.userPh',{email:MASTER.email})}" inputmode="email"></div></div>
+        <div class="field"><label>${t('login.pass')}</label><div class="input">${I('lock',18)}<input id="lg-pass" type="password" placeholder="••••••••"><button type="button" data-a="toggle-pass" style="color:var(--faint)">${I('eye',18)}</button></div></div>
+        <div class="err" id="lg-err">${t('login.err')}</div>
+        <button class="btn btn-primary" type="submit">${t('login.submit')}</button>
       </form>
       <button class="master-card" data-a="fill-master">
         <div class="mk">${I('zap',18)}</div>
-        <div class="grow"><div style="font-size:10.5px;font-weight:800;color:var(--primary);letter-spacing:.07em">⚡ LOCAL MASTER ACCOUNT</div>
-        <div class="t-title truncate" style="font-size:13px">${MASTER.email}</div><div class="t-sub" style="margin:0;font-size:11px">Tap to autofill • works for all portals</div></div>
+        <div class="grow"><div style="font-size:10.5px;font-weight:800;color:var(--primary);letter-spacing:.07em">${t('login.master')}</div>
+        <div class="t-title truncate" style="font-size:13px">${MASTER.email}</div><div class="t-sub" style="margin:0;font-size:11px">${t('login.masterHint')}</div></div>
         ${I('chevR',18)}
       </button>
-      <p class="t-sub" style="text-align:center;margin-top:14px">Don't have an account? <b style="color:var(--primary)">Register here</b></p>
+      <p class="t-sub" style="text-align:center;margin-top:14px">${t('login.noAccount')} <b style="color:var(--primary)">${t('login.register')}</b></p>
     </div>
-    <p class="t-sub" style="display:flex;justify-content:center;align-items:center;gap:5px;margin:18px 0 30px;font-size:11px">${I('lock',12)} Offline sandbox • no live data</p>
+    <p class="t-sub" style="display:flex;justify-content:center;align-items:center;gap:5px;margin:18px 0 30px;font-size:11px">${I('lock',12)} ${t('login.offline')}</p>
   </div></div>` };
 };
 
@@ -555,221 +862,225 @@ SCREENS['customer:home'] = () => {
   const active = S.bookings.find(b=>b.step<4);
   return { top:brandBar(), nav:true, body:`<div class="page">
     <div class="row" style="justify-content:space-between">
-      <div><div style="font-size:22px;font-weight:900;letter-spacing:-.02em">${GREET[S.lang]}, ${PERSONAS.customer.short} 👋</div>
+      <div><div style="font-size:22px;font-weight:900;letter-spacing:-.02em">${t('home.hello',{name:PERSONAS.customer.short})}</div>
       <div class="loc" style="margin-top:4px;color:var(--muted)">${I('pin',14)} Adyar, Chennai ${I('chevD',14)}</div></div>
     </div>
-    <button class="search" data-a="tab" data-v="services">${I('search',18)} Search plumbing, electrical…</button>
+    <button class="search" data-a="tab" data-v="services">${I('search',18)} ${t('home.search')}</button>
     ${active?`<button class="card active-bk" style="width:100%;text-align:left" data-a="track" data-v="${active.id}">
       <div class="row"><div class="svc-ico" style="background:${svc(active.service).color}1f;color:${svc(active.service).color};width:42px;height:42px">${I(svc(active.service).icon,20)}</div>
-      <div class="grow"><div class="row" style="gap:6px"><span class="live"><i></i>LIVE</span><span class="t-sub" style="margin:0">${active.id}</span></div>
+      <div class="grow"><div class="row" style="gap:6px"><span class="live"><i></i>${t('live')}</span><span class="t-sub" style="margin:0">${active.id}</span></div>
       <div class="t-title">${STEPS[active.step].t}</div><div class="t-sub">${svc(active.service).name} • ${WORKERS[active.service].name}</div></div>${I('chevR',18)}</div>
       <div class="progress"><i style="width:${(active.step/4)*100}%"></i></div></button>`:''}
     <div class="hero-card">
-      <span class="pill-light"><i></i>Cooperative backed</span>
-      <h2>VERIFIED HELP.<br>FAIR PRICES.</h2>
-      <p>Regulated fair pricing with 100% Aadhaar-verified union technicians.</p>
-      <button class="btn-white" data-a="tab" data-v="services">Book a service ${I('chevR',14,2.5)}</button>
+      <span class="pill-light"><i></i>${t('home.coopBacked')}</span>
+      <h2>${t('home.heroTitle')}</h2>
+      <p>${t('home.heroBody')}</p>
+      <button class="btn-white" data-a="tab" data-v="services">${t('home.book')} ${I('chevR',14,2.5)}</button>
     </div>
-    <div class="sec-head"><h3>Services</h3><button data-a="tab" data-v="services">See all</button></div>
+    <div class="sec-head"><h3>${t('nav.services')}</h3><button data-a="tab" data-v="services">${t('home.seeAll')}</button></div>
     <div class="svc-grid">${SERVICES.map(s=>`<button class="card svc-tile" data-a="service" data-v="${s.id}"><div class="svc-ico" style="background:${s.color}1f;color:${s.color}">${I(s.icon,22)}</div>${s.name}</button>`).join('')}</div>
-    <div class="sec-head"><h3>Your trusted workers</h3><span class="badge b-green">${I('shield',12)} Verified</span></div>
+    <div class="sec-head"><h3>${t('home.trusted')}</h3><span class="badge b-green">${I('shield',12)} ${t('verified')}</span></div>
     <div class="hscroll">${['plumbing','electrical','cleaning','carpentry'].map(k=>{const w=WORKERS[k];return `<button class="card worker-card" style="text-align:left" data-a="service" data-v="${k}">
       <div class="row">${avatar(w.init,w.color,42)}<div class="grow"><div class="t-title truncate">${w.name}</div><div class="t-sub">${svc(k).name}</div></div></div>
-      <div class="row" style="justify-content:space-between;margin-top:12px"><span class="stars">${I('star',13)} ${w.rating}</span>${w.served?'<span class="badge b-blue">Served you</span>':`<span class="t-sub" style="margin:0">${w.jobs} jobs</span>`}</div></button>`}).join('')}</div>
-    <div class="sec-head"><h3>Why Worksetu?</h3></div>
+      <div class="row" style="justify-content:space-between;margin-top:12px"><span class="stars">${I('star',13)} ${w.rating}</span>${w.served?`<span class="badge b-blue">${t('home.servedYou')}</span>`:`<span class="t-sub" style="margin:0">${t('jobsCount',{n:w.jobs})}</span>`}</div></button>`}).join('')}</div>
+    <div class="sec-head"><h3>${t('home.why')}</h3></div>
     <div class="list">
-      ${[['bank','Cooperative backed','Every worker is a certified member of a registered labour cooperative society'],
-         ['users','Worker continuity','Smart dispatch prioritizes familiar local workers for reliable ongoing service'],
-         ['coins','Fair earnings','Cooperatives ensure fair pay and social security benefits for all workers']]
+      ${[['bank',t('home.coopBacked'),t('why.coop.d')],
+         ['users',t('why.cont.t'),t('why.cont.d')],
+         ['coins',t('why.fair.t'),t('why.fair.d')]]
         .map(([ic,t,d])=>`<div class="card feature"><div class="fi">${I(ic,20)}</div><div><div class="t-title" style="text-transform:uppercase;font-size:13px;font-weight:800">${t}</div><div class="t-sub" style="line-height:1.45">${d}</div></div></div>`).join('')}
     </div>
-    <div class="sec-head"><h3>Platform impact</h3><span class="live"><i></i>LIVE</span></div>
-    <div class="impact"><div class="card stat"><b>24</b><span>Workers</span></div><div class="card stat"><b>1.2k</b><span>Jobs done</span></div><div class="card stat"><b>6</b><span>Co-ops</span></div></div>
+    <div class="sec-head"><h3>${t('home.impact')}</h3><span class="live"><i></i>${t('live')}</span></div>
+    <div class="impact"><div class="card stat"><b>24</b><span>${t('impact.workers')}</span></div><div class="card stat"><b>1.2k</b><span>${t('impact.jobs')}</span></div><div class="card stat"><b>6</b><span>${t('impact.coops')}</span></div></div>
   </div>` };
 };
 
-SCREENS['customer:services'] = () => ({ top:titleBar('Services','Regulated fair pricing',false), nav:true, body:`<div class="page">
-  <div class="input" style="margin-bottom:14px">${I('search',18)}<input id="svc-search" placeholder="Search services"></div>
-  <div class="list" id="svc-list">${SERVICES.map(s=>`<button class="card list-item svc-item" data-name="${s.name.toLowerCase()} ${s.desc.toLowerCase()}" data-a="service" data-v="${s.id}" style="text-align:left">
+SCREENS['customer:services'] = () => ({ top:titleBar(t('nav.services'),t('services.sub'),false), nav:true, body:`<div class="page">
+  <div class="input" style="margin-bottom:14px">${I('search',18)}<input id="svc-search" placeholder="${t('services.search')}"></div>
+  <div class="list" id="svc-list">${SERVICES.map(s=>`<button class="card list-item svc-item" data-name="${(s.name+' '+s.desc+' '+STR['svc.'+s.id][0]+' '+STR['svc.'+s.id+'.desc'][0]).toLowerCase()}" data-a="service" data-v="${s.id}" style="text-align:left">
     <div class="svc-ico" style="background:${s.color}1f;color:${s.color}">${I(s.icon,22)}</div>
     <div class="grow"><div class="t-title">${s.name}</div><div class="t-sub" style="line-height:1.4">${s.desc}</div>
-    <div class="row" style="gap:8px;margin-top:8px"><span class="badge b-blue">From ${inr(s.price)}</span><span class="stars">${I('star',12)} ${WORKERS[s.id].rating}</span></div></div>${I('chevR',18)}</button>`).join('')}</div>
+    <div class="row" style="gap:8px;margin-top:8px"><span class="badge b-blue">${t('services.from',{price:inr(s.price)})}</span><span class="stars">${I('star',12)} ${WORKERS[s.id].rating}</span></div></div>${I('chevR',18)}</button>`).join('')}</div>
 </div>` });
 
 SCREENS.service = ({id}) => {
   const s=svc(id), w=WORKERS[id], d=S.draft; const fee=29, total=s.price+fee;
-  return { top:titleBar(s.name,'Book a verified technician'), cta:`<div class="row" style="gap:14px"><div><div class="t-sub" style="margin:0">Total</div><div style="font-size:20px;font-weight:900">${inr(total)}</div></div><button class="btn btn-primary" style="flex:1" data-a="confirm" data-v="${id}">Confirm booking</button></div>`,
+  return { top:titleBar(s.name,t('book.sub')), cta:`<div class="row" style="gap:14px"><div><div class="t-sub" style="margin:0">${t('total')}</div><div style="font-size:20px;font-weight:900">${inr(total)}</div></div><button class="btn btn-primary" style="flex:1" data-a="confirm" data-v="${id}">${t('book.confirm')}</button></div>`,
   body:`<div class="page">
     <div class="card svc-hero"><div class="svc-ico" style="background:${s.color}1f;color:${s.color};width:56px;height:56px;border-radius:16px">${I(s.icon,28)}</div>
       <div><div style="font-size:20px;font-weight:900;text-transform:uppercase">${s.name}</div><div class="t-sub" style="line-height:1.45">${s.desc}</div></div>
-      <div class="row" style="gap:6px;flex-wrap:wrap"><span class="badge b-green">${I('shield',12)} Aadhaar verified</span><span class="badge b-blue">Fair price regulated</span></div></div>
-    <div class="sec-head"><h3>Assigned worker</h3>${w.served?'<span class="badge b-blue">Continuity match</span>':''}</div>
+      <div class="row" style="gap:6px;flex-wrap:wrap"><span class="badge b-green">${I('shield',12)} ${t('book.aadhaar')}</span><span class="badge b-blue">${t('book.fair')}</span></div></div>
+    <div class="sec-head"><h3>${t('book.assigned')}</h3>${w.served?`<span class="badge b-blue">${t('book.continuity')}</span>`:''}</div>
     <div class="card list-item">${avatar(w.init,w.color)}<div class="grow"><div class="t-title">${w.name}</div><div class="t-sub truncate">${w.coop}</div>
-      <div class="row" style="gap:10px;margin-top:6px"><span class="stars">${I('star',12)} ${w.rating}</span><span class="t-sub" style="margin:0">${w.jobs} jobs • ${w.yrs} yrs</span></div></div></div>
-    <div class="sec-head"><h3>Select date</h3></div>
-    <div class="chips">${DATES.map((x,i)=>`<button class="chip-btn ${d.date===i?'on':''}" data-a="date" data-v="${i}">${x.label}<small>${x.sub}</small></button>`).join('')}</div>
-    <div class="sec-head"><h3>Select time</h3></div>
+      <div class="row" style="gap:10px;margin-top:6px"><span class="stars">${I('star',12)} ${w.rating}</span><span class="t-sub" style="margin:0">${t('book.exp',{jobs:w.jobs,yrs:w.yrs})}</span></div></div></div>
+    <div class="sec-head"><h3>${t('book.date')}</h3></div>
+    <div class="chips">${DATES().map((x,i)=>`<button class="chip-btn ${d.date===i?'on':''}" data-a="date" data-v="${i}">${x.label}<small>${x.sub}</small></button>`).join('')}</div>
+    <div class="sec-head"><h3>${t('book.time')}</h3></div>
     <div class="slots">${SLOTS.map((x,i)=>`<button class="chip-btn ${d.slot===i?'on':''} ${d.date===0&&i===0?'disabled':''}" data-a="slot" data-v="${i}">${x}</button>`).join('')}</div>
-    <div class="sec-head"><h3>Address</h3><button>Change</button></div>
-    <div class="card list-item"><div class="s-ico" style="background:var(--primary-soft);color:var(--primary)">${I('pin',18)}</div><div class="grow"><div class="t-title">Home</div><div class="t-sub">14, 2nd Main Rd, Gandhi Nagar, Adyar, Chennai 600020</div></div></div>
-    <div class="sec-head"><h3>Price details</h3></div>
+    <div class="sec-head"><h3>${t('book.address')}</h3><button>${t('book.change')}</button></div>
+    <div class="card list-item"><div class="s-ico" style="background:var(--primary-soft);color:var(--primary)">${I('pin',18)}</div><div class="grow"><div class="t-title">${t('book.home')}</div><div class="t-sub">14, 2nd Main Rd, Gandhi Nagar, Adyar, Chennai 600020</div></div></div>
+    <div class="sec-head"><h3>${t('book.price')}</h3></div>
     <div class="card" style="padding:14px 16px">
-      <div class="sum-row"><span class="muted">Service charge</span><span>${inr(s.price)}</span></div>
-      <div class="sum-row"><span class="muted">Cooperative welfare fee</span><span>${inr(fee)}</span></div>
-      <div class="sum-row"><span class="muted">Platform commission</span><span style="color:var(--success);font-weight:700">₹0</span></div>
-      <div class="sum-row total"><span>Total</span><span>${inr(total)}</span></div>
+      <div class="sum-row"><span class="muted">${t('book.charge')}</span><span>${inr(s.price)}</span></div>
+      <div class="sum-row"><span class="muted">${t('book.welfare')}</span><span>${inr(fee)}</span></div>
+      <div class="sum-row"><span class="muted">${t('book.commission')}</span><span style="color:var(--success);font-weight:700">₹0</span></div>
+      <div class="sum-row total"><span>${t('total')}</span><span>${inr(total)}</span></div>
     </div>
-    <p class="t-sub" style="text-align:center;margin-top:12px;font-size:11.5px">100% of the service charge goes to the worker</p>
+    <p class="t-sub" style="text-align:center;margin-top:12px;font-size:11.5px">${t('book.note')}</p>
   </div>` };
 };
 
 SCREENS.success = ({id}) => { const b=S.bookings.find(x=>x.id===id), s=svc(b.service);
   return { top:'', body:`<div class="success-wrap">
     <div class="check-circle"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
-    <div class="eyebrow" style="margin-top:28px">Booking confirmed</div>
-    <div class="h-display" style="font-size:26px;margin-top:6px">You're all set!</div>
-    <p class="muted" style="margin-top:10px;font-size:14px;line-height:1.5">${WORKERS[b.service].name} from ${WORKERS[b.service].coop} will arrive ${b.date.toLowerCase()} at ${b.slot}.</p>
+    <div class="eyebrow" style="margin-top:28px">${t('success.eyebrow')}</div>
+    <div class="h-display" style="font-size:26px;margin-top:6px">${t('success.title')}</div>
+    <p class="muted" style="margin-top:10px;font-size:14px;line-height:1.5">${t('success.body',{worker:WORKERS[b.service].name, coop:WORKERS[b.service].coop, date:dayLabel(b.date).toLowerCase(), slot:b.slot})}</p>
     <div class="card" style="width:100%;padding:14px 16px;margin-top:22px;text-align:left">
-      <div class="sum-row"><span class="muted">Booking ID</span><b>${b.id}</b></div>
-      <div class="sum-row"><span class="muted">Service</span><span>${s.name}</span></div>
-      <div class="sum-row"><span class="muted">Amount</span><span>${inr(b.price)}</span></div>
+      <div class="sum-row"><span class="muted">${t('success.id')}</span><b>${b.id}</b></div>
+      <div class="sum-row"><span class="muted">${t('success.service')}</span><span>${s.name}</span></div>
+      <div class="sum-row"><span class="muted">${t('success.amount')}</span><span>${inr(b.price)}</span></div>
     </div>
-    <button class="btn btn-primary" style="margin-top:22px" data-a="track-replace" data-v="${b.id}">Track booking</button>
-    <button class="btn btn-ghost" style="margin-top:10px" data-a="tab" data-v="home">Back to home</button>
+    <button class="btn btn-primary" style="margin-top:22px" data-a="track-replace" data-v="${b.id}">${t('success.track')}</button>
+    <button class="btn btn-ghost" style="margin-top:10px" data-a="tab" data-v="home">${t('success.home')}</button>
   </div>` }; };
 
 SCREENS['customer:bookings'] = () => { const f=S.bookingFilter; const list=S.bookings.filter(b=>f==='active'?b.step<4:b.step>=4);
-  return { top:titleBar('My Bookings','Track dispatches & history',false), nav:true, body:`<div class="page">
-  <div class="seg" style="margin-bottom:14px"><button class="${f==='active'?'on':''}" data-a="bfilter" data-v="active">Active</button><button class="${f==='past'?'on':''}" data-a="bfilter" data-v="past">Completed</button></div>
+  return { top:titleBar(t('bookings.title'),t('bookings.sub'),false), nav:true, body:`<div class="page">
+  <div class="seg" style="margin-bottom:14px"><button class="${f==='active'?'on':''}" data-a="bfilter" data-v="active">${t('bookings.active')}</button><button class="${f==='past'?'on':''}" data-a="bfilter" data-v="past">${t('status.completed')}</button></div>
   ${list.length?`<div class="list">${list.map(b=>{const s=svc(b.service),w=WORKERS[b.service];return `<button class="card" style="padding:14px;text-align:left;width:100%" data-a="track" data-v="${b.id}">
     <div class="row"><div class="svc-ico" style="background:${s.color}1f;color:${s.color};width:44px;height:44px">${I(s.icon,20)}</div>
-    <div class="grow"><div class="row" style="justify-content:space-between"><div class="t-title">${s.name}</div>${b.step<4?`<span class="badge b-blue">${STEPS[b.step].t}</span>`:'<span class="badge b-green">Completed</span>'}</div>
-    <div class="t-sub">${b.id} • ${b.date}, ${b.slot}</div></div></div>
+    <div class="grow"><div class="row" style="justify-content:space-between"><div class="t-title">${s.name}</div>${b.step<4?`<span class="badge b-blue">${STEPS[b.step].t}</span>`:`<span class="badge b-green">${t('status.completed')}</span>`}</div>
+    <div class="t-sub">${b.id} • ${dayLabel(b.date)}, ${b.slot}</div></div></div>
     <div class="divider" style="margin:12px 0"></div>
     <div class="row" style="justify-content:space-between"><div class="row" style="gap:8px">${avatar(w.init,w.color,28)}<span style="font-size:13px;font-weight:600">${w.name}</span></div><b>${inr(b.price)}</b></div>
     ${b.step<4?`<div class="progress"><i style="width:${(b.step/4)*100}%"></i></div>`:''}</button>`}).join('')}</div>`
-  :`<div class="empty"><div class="ei">${I('calendar',28)}</div><div class="t-title">No ${f} bookings</div><p class="t-sub">Book a verified cooperative worker in seconds.</p><button class="btn btn-primary btn-sm" style="margin-top:16px;width:auto;padding:0 18px;display:inline-flex" data-a="tab" data-v="services">Browse services</button></div>`}
+  :`<div class="empty"><div class="ei">${I('calendar',28)}</div><div class="t-title">${t('bookings.empty.'+f)}</div><p class="t-sub">${t('bookings.emptyBody')}</p><button class="btn btn-primary btn-sm" style="margin-top:16px;width:auto;padding:0 18px;display:inline-flex" data-a="tab" data-v="services">${t('bookings.browse')}</button></div>`}
   </div>` }; };
 
 SCREENS.track = ({id}) => { const b=S.bookings.find(x=>x.id===id), s=svc(b.service), w=WORKERS[b.service];
   const pos=[[30,140],[70,120],[170,100],[260,62],[285,48]][b.step];
   const done=b.step>=4;
-  return { top:titleBar('Track Booking', b.id), cta: done?`<button class="btn btn-ghost" data-a="tab" data-v="bookings">Done</button>`:`<button class="btn btn-primary" data-a="advance" data-v="${b.id}">${I('activity',18)} Simulate next update</button>`,
+  return { top:titleBar(t('track.title'), b.id), cta: done?`<button class="btn btn-ghost" data-a="tab" data-v="bookings">${t('track.done')}</button>`:`<button class="btn btn-primary" data-a="advance" data-v="${b.id}">${I('activity',18)} ${t('track.simulate')}</button>`,
   body:`<div class="page">
     <div class="map">
       <svg class="route" width="100%" height="100%" viewBox="0 0 330 190" preserveAspectRatio="none"><path d="M30 150 C 90 140, 120 100, 180 100 S 270 70, 300 58" fill="none" stroke="#2563eb" stroke-width="4" stroke-dasharray="8 7" stroke-linecap="round" opacity=".7"/></svg>
       <div class="pin-home">${I('home',16)}</div>
       <div class="pin-worker" style="left:${pos[0]-15}px;top:${pos[1]-15}px">${I('user',14,2.5)}</div>
-      <div class="eta">${done?'✅ Service completed':b.step>=3?'🔧 Worker at your home':`🕒 ETA ${[25,18,12][b.step]} min`}</div>
+      <div class="eta">${done?t('track.completed'):b.step>=3?t('track.atHome'):t('track.eta',{n:[25,18,12][b.step]})}</div>
     </div>
     <div class="card list-item" style="margin-top:14px">${avatar(w.init,w.color,48)}<div class="grow"><div class="t-title">${w.name}</div><div class="t-sub truncate">${s.name} • ${w.coop}</div><span class="stars" style="margin-top:4px">${I('star',12)} ${w.rating}</span></div>
-      <button class="icon-btn" style="background:var(--success-soft);color:var(--success);border:0" data-a="toast" data-v="Calling ${w.name} (simulated)">${I('phone',18)}</button></div>
-    ${b.step<4?`<div class="card list-item" style="margin-top:10px;justify-content:space-between"><div><div class="t-title">Start OTP</div><div class="t-sub">Share when work begins</div></div><div class="otp"><span>4</span><span>8</span><span>2</span><span>7</span></div></div>`:''}
-    <div class="sec-head"><h3>Status</h3>${done?'':'<span class="live"><i></i>LIVE</span>'}</div>
+      <button class="icon-btn" style="background:var(--success-soft);color:var(--success);border:0" data-a="toast" data-v="${t('track.calling',{name:w.name})}">${I('phone',18)}</button></div>
+    ${b.step<4?`<div class="card list-item" style="margin-top:10px;justify-content:space-between"><div><div class="t-title">${t('track.otp')}</div><div class="t-sub">${t('track.otpHint')}</div></div><div class="otp"><span>4</span><span>8</span><span>2</span><span>7</span></div></div>`:''}
+    <div class="sec-head"><h3>${t('track.status')}</h3>${done?'':`<span class="live"><i></i>${t('live')}</span>`}</div>
     <div class="card" style="padding:16px"><div class="timeline">${STEPS.map((st,i)=>`<div class="tl ${i<b.step||done?'done':i===b.step?'now':''}"><div class="dotc">${i<b.step||done?I('check',12,3.5):''}</div><div><div class="t-title">${st.t}</div><div class="t-sub">${st.d}</div></div></div>`).join('')}</div></div>
   </div>` }; };
 
-SCREENS.notifications = () => ({ top:titleBar('Notifications','',true,`<button class="icon-btn" data-a="read-all" aria-label="Mark all read">${I('check',18)}</button>`), body:`<div class="page"><div class="list">
+const notifVars = n => ({...n.vars, svc: n.vars.svc && svc(n.vars.svc).name});
+const ago = ([n,u]) => n ? t('time.'+u,{n}) : t('time.now');
+SCREENS.notifications = () => ({ top:titleBar(t('nav.notifications'),'',true,`<button class="icon-btn" data-a="read-all" aria-label="${t('a11y.readAll')}">${I('check',18)}</button>`), body:`<div class="page"><div class="list">
   ${S.notifs.map(n=>`<div class="card list-item" style="${n.unread?'border-color:var(--primary-line)':''}"><div class="s-ico badge ${n.tone}" style="width:40px;height:40px;border-radius:12px;padding:0;justify-content:center">${I(n.icon,18)}</div>
-  <div class="grow"><div class="t-title" style="font-size:13.5px">${n.title}</div><div class="t-sub">${n.body}</div></div><div style="text-align:right"><div class="t-sub" style="margin:0">${n.time}</div>${n.unread?'<div style="width:8px;height:8px;border-radius:50%;background:var(--primary);margin:6px 0 0 auto"></div>':''}</div></div>`).join('')}
+  <div class="grow"><div class="t-title" style="font-size:13.5px">${t('n.'+n.key+'.t',notifVars(n))}</div><div class="t-sub">${t('n.'+n.key+'.b',notifVars(n))}</div></div><div style="text-align:right"><div class="t-sub" style="margin:0">${ago(n.time)}</div>${n.unread?'<div style="width:8px;height:8px;border-radius:50%;background:var(--primary);margin:6px 0 0 auto"></div>':''}</div></div>`).join('')}
 </div></div>` });
 
 // ---------- WORKER ----------
+const jobSlot = sl => dayLabel(sl.day) + (sl.in ? ', '+t('slot.in'+sl.in) : sl.time ? ', '+sl.time : '');
+const jobStatus = st => st==='done'?`<span class="badge b-green">${t('status.completed')}</span>`:st==='active'?`<span class="badge b-amber">${t('status.progress')}</span>`:`<span class="badge b-blue">${t('status.upcoming')}</span>`;
 SCREENS['worker:home'] = () => { const next=S.jobs.find(j=>j.status!=='done'); const r=S.request;
   return { top:brandBar(), nav:true, body:`<div class="page">
-    <div style="font-size:22px;font-weight:900;letter-spacing:-.02em">${GREET[S.lang]}, ${PERSONAS.worker.short} 👋</div>
-    <div class="t-sub" style="margin-bottom:14px">Adyar Plumbers Cooperative • Member #TN-0417</div>
-    <div class="card online-card ${S.online?'on':''}"><div class="pulse"></div><div class="grow"><div class="t-title">${S.online?'You are online':'You are offline'}</div><div class="t-sub">${S.online?'Receiving dispatch requests nearby':'Go online to receive jobs'}</div></div>
-      <button class="toggle ${S.online?'on':''}" style="${S.online?'background:rgba(255,255,255,.3)':''}" data-a="online" aria-label="Toggle availability"></button></div>
-    <div class="kpis"><div class="card kpi"><span>Today</span><b style="color:var(--success)">${inr(S.earningsToday)}</b></div><div class="card kpi"><span>Jobs</span><b>${S.jobsToday}</b></div><div class="card kpi"><span>Rating</span><b>4.9★</b></div></div>
+    <div style="font-size:22px;font-weight:900;letter-spacing:-.02em">${t('home.hello',{name:PERSONAS.worker.short})}</div>
+    <div class="t-sub" style="margin-bottom:14px">${t('worker.member',{coop:'Adyar Plumbers Cooperative', id:'TN-0417'})}</div>
+    <div class="card online-card ${S.online?'on':''}"><div class="pulse"></div><div class="grow"><div class="t-title">${t(S.online?'worker.online':'worker.offline')}</div><div class="t-sub">${t(S.online?'worker.onlineSub':'worker.offlineSub')}</div></div>
+      <button class="toggle ${S.online?'on':''}" style="${S.online?'background:rgba(255,255,255,.3)':''}" data-a="online" aria-label="${t('a11y.toggle')}"></button></div>
+    <div class="kpis"><div class="card kpi"><span>${t('day.today')}</span><b style="color:var(--success)">${inr(S.earningsToday)}</b></div><div class="card kpi"><span>${t('nav.jobs')}</span><b>${S.jobsToday}</b></div><div class="card kpi"><span>${t('kpi.rating')}</span><b>4.9★</b></div></div>
     ${S.online&&r?`<div class="card request"><div class="row" style="position:relative">
-        <div class="grow"><span class="badge b-blue">${I('zap',11)} New dispatch request</span><div class="t-title" style="font-size:16px;margin-top:8px">${r.title}</div>
+        <div class="grow"><span class="badge b-blue">${I('zap',11)} ${t('req.new')}</span><div class="t-title" style="font-size:16px;margin-top:8px">${t('job.'+r.title)}</div>
         <div class="t-sub">${r.customer} • ${r.area} • ${r.dist}</div></div>
         <div class="ring"><svg width="48" height="48"><circle cx="24" cy="24" r="20" fill="none" stroke="var(--primary-soft)" stroke-width="4"/><circle class="fg" cx="24" cy="24" r="20" fill="none" stroke="var(--primary)" stroke-width="4" stroke-linecap="round" style="animation-delay:-${Math.min(29,Math.floor((Date.now()-S.reqStart)/1000))}s"/></svg><b id="req-count">30</b></div></div>
-      <div class="row" style="justify-content:space-between;margin:14px 0;position:relative"><span class="t-sub" style="margin:0">You earn (100% retained)</span><b style="font-size:20px;color:var(--success)">${inr(r.pay)}</b></div>
-      <div class="row" style="gap:10px;position:relative"><button class="btn btn-sm btn-danger-soft" style="flex:1" data-a="decline">Decline</button><button class="btn btn-sm btn-primary" style="flex:2" data-a="accept">Accept job</button></div></div>`
-    : S.online?`<div class="card list-item" style="margin-top:16px"><div class="s-ico" style="background:var(--primary-soft);color:var(--primary)">${I('search',18)}</div><div class="grow"><div class="t-title">Looking for nearby jobs…</div><div class="t-sub">Requests appear here instantly</div></div></div>`:''}
-    ${next?`<div class="sec-head"><h3>Next job</h3><button data-a="tab" data-v="jobs">All jobs</button></div>
-    <div class="card" style="padding:14px"><div class="row"><div class="svc-ico" style="background:#0ea5e91f;color:#0ea5e9;width:44px;height:44px">${I('drop',20)}</div><div class="grow"><div class="t-title">${next.title}</div><div class="t-sub">${next.customer} • ${next.area}</div></div>${next.status==='active'?'<span class="badge b-amber">In progress</span>':'<span class="badge b-blue">Upcoming</span>'}</div>
-    <div class="divider" style="margin:12px 0"></div><div class="row" style="justify-content:space-between"><span class="t-sub row" style="margin:0;gap:6px">${I('clock',14)} ${next.slot}</span><b>${inr(next.pay)}</b></div>
-    <div class="row" style="gap:10px;margin-top:12px"><button class="btn btn-sm btn-ghost" style="flex:1" data-a="toast" data-v="Opening navigation (simulated)">${I('nav',15)} Navigate</button>${next.status==='active'?`<button class="btn btn-sm btn-success" style="flex:1" data-a="job-done" data-v="${next.id}">Complete</button>`:`<button class="btn btn-sm btn-primary" style="flex:1" data-a="job-start" data-v="${next.id}">Start job</button>`}</div></div>`:''}
-    <div class="sec-head"><h3>Cooperative benefits</h3></div>
+      <div class="row" style="justify-content:space-between;margin:14px 0;position:relative"><span class="t-sub" style="margin:0">${t('req.earn')}</span><b style="font-size:20px;color:var(--success)">${inr(r.pay)}</b></div>
+      <div class="row" style="gap:10px;position:relative"><button class="btn btn-sm btn-danger-soft" style="flex:1" data-a="decline">${t('req.decline')}</button><button class="btn btn-sm btn-primary" style="flex:2" data-a="accept">${t('req.accept')}</button></div></div>`
+    : S.online?`<div class="card list-item" style="margin-top:16px"><div class="s-ico" style="background:var(--primary-soft);color:var(--primary)">${I('search',18)}</div><div class="grow"><div class="t-title">${t('req.looking')}</div><div class="t-sub">${t('req.lookingSub')}</div></div></div>`:''}
+    ${next?`<div class="sec-head"><h3>${t('worker.next')}</h3><button data-a="tab" data-v="jobs">${t('worker.allJobs')}</button></div>
+    <div class="card" style="padding:14px"><div class="row"><div class="svc-ico" style="background:#0ea5e91f;color:#0ea5e9;width:44px;height:44px">${I('drop',20)}</div><div class="grow"><div class="t-title">${t('job.'+next.title)}</div><div class="t-sub">${next.customer} • ${next.area}</div></div>${jobStatus(next.status)}</div>
+    <div class="divider" style="margin:12px 0"></div><div class="row" style="justify-content:space-between"><span class="t-sub row" style="margin:0;gap:6px">${I('clock',14)} ${jobSlot(next.slot)}</span><b>${inr(next.pay)}</b></div>
+    <div class="row" style="gap:10px;margin-top:12px"><button class="btn btn-sm btn-ghost" style="flex:1" data-a="toast" data-v="${t('worker.navToast')}">${I('nav',15)} ${t('worker.navigate')}</button>${next.status==='active'?`<button class="btn btn-sm btn-success" style="flex:1" data-a="job-done" data-v="${next.id}">${t('worker.complete')}</button>`:`<button class="btn btn-sm btn-primary" style="flex:1" data-a="job-start" data-v="${next.id}">${t('worker.start')}</button>`}</div></div>`:''}
+    <div class="sec-head"><h3>${t('worker.benefits')}</h3></div>
     <div class="benefits">
-      ${[['coins','Dividend','₹2,340','This quarter','b-green'],['heart','Healthcare','Active','Family cover','b-red'],['users','Collective','24','Union members','b-blue'],['shield','Insurance','₹5 L','Accident cover','b-amber']]
+      ${[['coins',t('ben.dividend'),'₹2,340',t('ben.quarter'),'b-green'],['heart',t('ben.health'),t('bookings.active'),t('ben.family'),'b-red'],['users',t('ben.collective'),'24',t('ben.members'),'b-blue'],['shield',t('ben.insurance'),t('ben.insValue'),t('ben.accident'),'b-amber']]
         .map(([ic,t,v,d,tone])=>`<div class="card benefit"><div class="badge ${tone}" style="width:34px;height:34px;border-radius:10px;padding:0;justify-content:center">${I(ic,17)}</div><div class="t-sub" style="margin:0;font-weight:700;text-transform:uppercase;font-size:10.5px;letter-spacing:.05em">${t}</div><b style="font-size:18px">${v}</b><div class="t-sub" style="margin:0;font-size:11px">${d}</div></div>`).join('')}
     </div>
   </div>` }; };
 
-SCREENS['worker:jobs'] = () => ({ top:titleBar('My Jobs','Dispatch assignments',false), nav:true, body:`<div class="page"><div class="list">
-  ${S.jobs.map(j=>`<div class="card" style="padding:14px"><div class="row"><div class="grow"><div class="t-title">${j.title}</div><div class="t-sub">${j.id} • ${j.customer} • ${j.area}</div></div>
-  ${j.status==='done'?'<span class="badge b-green">Completed</span>':j.status==='active'?'<span class="badge b-amber">In progress</span>':'<span class="badge b-blue">Upcoming</span>'}</div>
-  <div class="row" style="justify-content:space-between;margin-top:10px"><span class="t-sub row" style="margin:0;gap:6px">${I('clock',14)} ${j.slot}</span><b>${inr(j.pay)}</b></div>
-  ${j.status==='upcoming'?`<button class="btn btn-sm btn-primary" style="margin-top:12px" data-a="job-start" data-v="${j.id}">Start job</button>`:j.status==='active'?`<button class="btn btn-sm btn-success" style="margin-top:12px" data-a="job-done" data-v="${j.id}">Mark complete</button>`:''}
+SCREENS['worker:jobs'] = () => ({ top:titleBar(t('jobs.title'),t('jobs.sub'),false), nav:true, body:`<div class="page"><div class="list">
+  ${S.jobs.map(j=>`<div class="card" style="padding:14px"><div class="row"><div class="grow"><div class="t-title">${t('job.'+j.title)}</div><div class="t-sub">${j.id} • ${j.customer} • ${j.area}</div></div>
+  ${jobStatus(j.status)}</div>
+  <div class="row" style="justify-content:space-between;margin-top:10px"><span class="t-sub row" style="margin:0;gap:6px">${I('clock',14)} ${jobSlot(j.slot)}</span><b>${inr(j.pay)}</b></div>
+  ${j.status==='upcoming'?`<button class="btn btn-sm btn-primary" style="margin-top:12px" data-a="job-start" data-v="${j.id}">${t('worker.start')}</button>`:j.status==='active'?`<button class="btn btn-sm btn-success" style="margin-top:12px" data-a="job-done" data-v="${j.id}">${t('jobs.markDone')}</button>`:''}
   </div>`).join('')}
 </div></div>` });
 
-SCREENS['worker:earnings'] = () => { const max=Math.max(...S.week), tot=S.week.reduce((a,b)=>a+b,0); const days=['M','T','W','T','F','S','S'];
-  return { top:titleBar('Earnings','Cooperative ledger',false), nav:true, body:`<div class="page">
-  <div class="hero-card" style="margin-top:0"><span class="pill-light"><i></i>This week</span><h2 style="font-size:34px">${inr(tot)}</h2><p>100% fee retention • zero platform commission</p></div>
-  <div class="card" style="padding:16px;margin-top:14px"><div class="row" style="justify-content:space-between"><h3 style="font-size:13px;font-weight:800;text-transform:uppercase">Daily earnings</h3><span class="trend">▲ 18% vs last week</span></div>
+SCREENS['worker:earnings'] = () => { const max=Math.max(...S.week), tot=S.week.reduce((a,b)=>a+b,0); const days=tl('days.initials');
+  return { top:titleBar(t('nav.earnings'),t('earn.sub'),false), nav:true, body:`<div class="page">
+  <div class="hero-card" style="margin-top:0"><span class="pill-light"><i></i>${t('earn.week')}</span><h2 style="font-size:34px">${inr(tot)}</h2><p>${t('earn.retention')}</p></div>
+  <div class="card" style="padding:16px;margin-top:14px"><div class="row" style="justify-content:space-between"><h3 style="font-size:13px;font-weight:800;text-transform:uppercase">${t('earn.daily')}</h3><span class="trend">${t('earn.trend')}</span></div>
   <div class="chart">${S.week.map((v,i)=>`<div class="bar ${i===6?'today':''}"><i style="height:${(v/max)*100}%;animation-delay:${i*60}ms"></i><span>${days[i]}</span></div>`).join('')}</div></div>
-  <div class="sec-head"><h3>Ledger settlements</h3></div>
-  <div class="card" style="padding:4px 14px">${S.jobs.filter(j=>j.status==='done').map(j=>`<div class="feed-item"><div class="s-ico" style="background:var(--success-soft);color:var(--success)">${I('coins',17)}</div><div class="grow"><div class="t-title" style="font-size:13.5px">${j.title}</div><div class="t-sub">${j.id} • ${j.slot}</div></div><b style="color:var(--success)">+${inr(j.pay)}</b></div>`).join('')}
-  <div class="feed-item"><div class="s-ico" style="background:var(--primary-soft);color:var(--primary)">${I('bank',17)}</div><div class="grow"><div class="t-title" style="font-size:13.5px">Quarterly dividend</div><div class="t-sub">Adyar Plumbers Cooperative</div></div><b style="color:var(--success)">+₹2,340</b></div></div>
-  <button class="btn btn-primary" style="margin-top:16px" data-a="toast" data-v="Withdrawal requested (simulated)">${I('wallet',18)} Withdraw to bank</button>
+  <div class="sec-head"><h3>${t('earn.ledger')}</h3></div>
+  <div class="card" style="padding:4px 14px">${S.jobs.filter(j=>j.status==='done').map(j=>`<div class="feed-item"><div class="s-ico" style="background:var(--success-soft);color:var(--success)">${I('coins',17)}</div><div class="grow"><div class="t-title" style="font-size:13.5px">${t('job.'+j.title)}</div><div class="t-sub">${j.id} • ${jobSlot(j.slot)}</div></div><b style="color:var(--success)">+${inr(j.pay)}</b></div>`).join('')}
+  <div class="feed-item"><div class="s-ico" style="background:var(--primary-soft);color:var(--primary)">${I('bank',17)}</div><div class="grow"><div class="t-title" style="font-size:13.5px">${t('earn.dividend')}</div><div class="t-sub">Adyar Plumbers Cooperative</div></div><b style="color:var(--success)">+₹2,340</b></div></div>
+  <button class="btn btn-primary" style="margin-top:16px" data-a="toast" data-v="${t('earn.withdrawToast')}">${I('wallet',18)} ${t('earn.withdraw')}</button>
   </div>` }; };
 
 // ---------- ADMIN ----------
 SCREENS['admin:home'] = () => ({ top:brandBar(), nav:true, body:`<div class="page">
-  <div class="eyebrow">Management console</div>
-  <div class="h-display" style="font-size:26px;margin:4px 0 14px">Registrar authority.</div>
+  <div class="eyebrow">${t('login.admin.eyebrow')}</div>
+  <div class="h-display" style="font-size:26px;margin:4px 0 14px">${t('admin.title')}</div>
   <div class="kpi-grid">
-    ${[['users','Members',S.members.filter(m=>m.status==='verified').length+18,'Skilled workers','+3'],['activity','Dispatched','1,248','Completed jobs','+42'],['bank','Cooperatives','6','Active co-ops','+1'],['shield','Verified','100%','Aadhaar KYC','']]
+    ${[['users',t('nav.members'),S.members.filter(m=>m.status==='verified').length+18,t('kpi.skilled'),'+3'],['activity',t('kpi.dispatched'),'1,248',t('kpi.completedJobs'),'+42'],['bank',t('kpi.coops'),'6',t('kpi.activeCoops'),'+1'],['shield',t('verified'),'100%',t('kpi.kyc'),'']]
       .map(([ic,l,v,s,t])=>`<div class="card kpi-lg"><div class="top"><span>${l}</span>${I(ic,17)}</div><b>${v}</b><div class="row" style="justify-content:space-between"><small>${s}</small>${t?`<span class="trend">${t}</span>`:''}</div></div>`).join('')}
   </div>
-  <div class="sec-head"><h3>Live activity</h3><span class="live"><i></i>LIVE</span></div>
+  <div class="sec-head"><h3>${t('admin.activity')}</h3><span class="live"><i></i>${t('live')}</span></div>
   <div class="card" style="padding:4px 14px">
-    ${[['zap','b-blue','Dispatch WS-24817 assigned','Rajesh Kannan → Adyar','2m'],['check','b-green','Job WS-24806 completed','₹1,499 settled to ledger','9m'],['user','b-amber','New member application','Vignesh Raman • AC Repair','21m'],['coins','b-green','Dividend payout processed','₹43,200 across 6 co-ops','1h']]
+    ${[['zap','b-blue',t('feed.assigned',{id:'WS-24817'}),'Rajesh Kannan → Adyar',ago([2,'m'])],['check','b-green',t('feed.completed',{id:'WS-24806'}),t('feed.settled',{amt:'₹1,499'}),ago([9,'m'])],['user','b-amber',t('feed.application'),'Vignesh Raman • '+svc('ac').name,ago([21,'m'])],['coins','b-green',t('feed.payout'),t('feed.payoutBody',{amt:'₹43,200',n:6}),ago([1,'h'])]]
       .map(([ic,tone,t,d,tm])=>`<div class="feed-item"><div class="badge ${tone}" style="width:36px;height:36px;border-radius:11px;padding:0;justify-content:center">${I(ic,16)}</div><div class="grow"><div class="t-title" style="font-size:13.5px">${t}</div><div class="t-sub">${d}</div></div><span class="t-sub" style="margin:0">${tm}</span></div>`).join('')}
   </div>
-  <div class="sec-head"><h3>Cooperatives</h3></div>
+  <div class="sec-head"><h3>${t('kpi.coops')}</h3></div>
   <div class="list">${[['Adyar Plumbers Cooperative','Chennai',6,92],['Chennai Electricians Labour Coop.','Chennai',5,88],['Mylapore Home Care Cooperative','Chennai',4,95],['Connaught Place Services Union','New Delhi',9,81]]
-    .map(([n,c,m,p])=>`<div class="card" style="padding:14px"><div class="row"><div class="s-ico" style="background:var(--primary-soft);color:var(--primary)">${I('bank',17)}</div><div class="grow"><div class="t-title truncate" style="font-size:13.5px">${n}</div><div class="t-sub">${c} • ${m} members</div></div><b style="font-size:13px">${p}%</b></div><div class="progress"><i style="width:${p}%"></i></div></div>`).join('')}</div>
+    .map(([n,c,m,p])=>`<div class="card" style="padding:14px"><div class="row"><div class="s-ico" style="background:var(--primary-soft);color:var(--primary)">${I('bank',17)}</div><div class="grow"><div class="t-title truncate" style="font-size:13.5px">${n}</div><div class="t-sub">${t('admin.coopMeta',{city:c,n:m})}</div></div><b style="font-size:13px">${p}%</b></div><div class="progress"><i style="width:${p}%"></i></div></div>`).join('')}</div>
 </div>` });
 
 SCREENS['admin:members'] = () => { const pend=S.members.filter(m=>m.status==='pending').length;
-  return { top:titleBar('Member Register',`${S.members.length} listed • ${pend} pending`,false), nav:true, body:`<div class="page">
-  <div class="input" style="margin-bottom:14px">${I('search',18)}<input id="mem-search" placeholder="Search members"></div>
-  <div class="list">${S.members.map((m,i)=>`<div class="card list-item mem-item" data-name="${m.name.toLowerCase()} ${m.skill.toLowerCase()}">${avatar(m.init,m.color)}<div class="grow"><div class="t-title">${m.name}</div><div class="t-sub truncate">${m.skill} • ${m.coop}</div></div>
-    ${m.status==='verified'?`<span class="badge b-green">${I('shield',11)} Verified</span>`:`<button class="btn btn-sm btn-primary" style="width:auto;padding:0 14px;height:34px" data-a="approve" data-v="${i}">Approve</button>`}</div>`).join('')}</div>
+  return { top:titleBar(t('members.title'),t('members.sub',{n:S.members.length,p:pend}),false), nav:true, body:`<div class="page">
+  <div class="input" style="margin-bottom:14px">${I('search',18)}<input id="mem-search" placeholder="${t('members.search')}"></div>
+  <div class="list">${S.members.map((m,i)=>`<div class="card list-item mem-item" data-name="${(m.name+' '+svc(m.skill).name+' '+STR['svc.'+m.skill][0]).toLowerCase()}">${avatar(m.init,m.color)}<div class="grow"><div class="t-title">${m.name}</div><div class="t-sub truncate">${svc(m.skill).name} • ${m.coop}</div></div>
+    ${m.status==='verified'?`<span class="badge b-green">${I('shield',11)} ${t('verified')}</span>`:`<button class="btn btn-sm btn-primary" style="width:auto;padding:0 14px;height:34px" data-a="approve" data-v="${i}">${t('members.approve')}</button>`}</div>`).join('')}</div>
   </div>` }; };
 
-SCREENS['admin:dispatch'] = () => { const f=S.dispatchFilter; const tone={'En route':'b-blue','In progress':'b-amber','Assigning':'b-gray','Completed':'b-green'};
-  const list=S.dispatches.filter(d=>f==='all'||(f==='live'?d.status!=='Completed':d.status==='Completed'));
-  return { top:titleBar('Dispatch Monitor','Nationwide live tracking',false), nav:true, body:`<div class="page">
-  <div class="seg" style="margin-bottom:14px">${[['all','All'],['live','Live'],['done','Completed']].map(([k,l])=>`<button class="${f===k?'on':''}" data-a="dfilter" data-v="${k}">${l}</button>`).join('')}</div>
+SCREENS['admin:dispatch'] = () => { const f=S.dispatchFilter; const tone={enroute:'b-blue',progress:'b-amber',assigning:'b-gray',completed:'b-green'};
+  const list=S.dispatches.filter(d=>f==='all'||(f==='live'?d.status!=='completed':d.status==='completed'));
+  return { top:titleBar(t('dispatch.title'),t('dispatch.sub'),false), nav:true, body:`<div class="page">
+  <div class="seg" style="margin-bottom:14px">${[['all',t('dispatch.all')],['live',t('dispatch.live')],['done',t('status.completed')]].map(([k,l])=>`<button class="${f===k?'on':''}" data-a="dfilter" data-v="${k}">${l}</button>`).join('')}</div>
   <div class="list">${list.map(d=>{const s=svc(d.svc);return `<div class="card" style="padding:14px"><div class="row"><div class="svc-ico" style="background:${s.color}1f;color:${s.color};width:42px;height:42px">${I(s.icon,19)}</div>
-    <div class="grow"><div class="row" style="justify-content:space-between"><div class="t-title">${d.id}</div><span class="badge ${tone[d.status]}">${d.status}</span></div><div class="t-sub">${s.name} • ${d.worker}</div></div></div>
+    <div class="grow"><div class="row" style="justify-content:space-between"><div class="t-title">${d.id}</div><span class="badge ${tone[d.status]}">${t('status.'+d.status)}</span></div><div class="t-sub">${s.name} • ${d.worker}</div></div></div>
     <div class="t-sub row" style="gap:6px;margin-top:10px">${I('pin',13)} ${d.area}</div></div>`}).join('')}</div>
   </div>` }; };
 
 // ---------- PROFILE (shared) ----------
 const profileScreen = () => { const p=PERSONAS[S.role];
-  return { top:titleBar('Profile','',false), nav:true, body:`<div class="page">
+  return { top:titleBar(t('nav.profile'),'',false), nav:true, body:`<div class="page">
   <div class="card profile-head">${avatar(p.initials,p.color)}<div style="font-size:19px;font-weight:900">${p.name}</div><div class="t-sub">${p.meta}</div>
-    <div class="row" style="gap:6px;margin-top:10px"><span class="badge b-blue">${p.label}</span><span class="badge b-amber">${I('zap',11)} Master</span></div></div>
-  <div class="sec-head"><h3>Switch portal</h3><span class="t-sub" style="margin:0">Master only</span></div>
+    <div class="row" style="gap:6px;margin-top:10px"><span class="badge b-blue">${p.label}</span><span class="badge b-amber">${I('zap',11)} ${t('profile.master')}</span></div></div>
+  <div class="sec-head"><h3>${t('profile.switch')}</h3><span class="t-sub" style="margin:0">${t('profile.masterOnly')}</span></div>
   <div class="list">${['customer','worker','admin'].map(r=>`<button class="role-opt ${S.role===r?'on':''}" data-a="role" data-v="${r}"><div class="radio"></div>${avatar(PERSONAS[r].initials,PERSONAS[r].color,36)}<div class="grow"><div class="t-title" style="font-size:13.5px">${PERSONAS[r].label}</div><div class="t-sub truncate">${PERSONAS[r].name}</div></div></button>`).join('')}</div>
-  <div class="sec-head"><h3>Settings</h3></div>
+  <div class="sec-head"><h3>${t('profile.settings')}</h3></div>
   <div class="card settings">
-    <button class="s-item" data-a="theme"><div class="s-ico">${I('moon',18)}</div><div class="grow t-title">Dark mode</div><div class="toggle ${S.theme==='dark'?'on':''}"></div></button>
-    <button class="s-item" data-a="lang"><div class="s-ico">${I('globe',18)}</div><div class="grow t-title">Language</div><span class="badge b-blue">${S.lang}</span>${I('chevR',16)}</button>
-    <button class="s-item" data-a="push" data-v="notifications"><div class="s-ico">${I('bell',18)}</div><div class="grow t-title">Notifications</div>${I('chevR',16)}</button>
-    <button class="s-item" data-a="toast" data-v="Aadhaar KYC verified ✓"><div class="s-ico">${I('shield',18)}</div><div class="grow t-title">Verification & KYC</div><span class="badge b-green">Verified</span></button>
-    <button class="s-item" data-a="toast" data-v="Help centre (simulated)"><div class="s-ico">${I('help',18)}</div><div class="grow t-title">Help & support</div>${I('chevR',16)}</button>
+    <button class="s-item" data-a="theme"><div class="s-ico">${I('moon',18)}</div><div class="grow t-title">${t('profile.dark')}</div><div class="toggle ${S.theme==='dark'?'on':''}"></div></button>
+    <div class="s-item s-lang"><div class="s-ico">${I('globe',18)}</div><div class="grow t-title">${t('profile.language')}</div>${langPicker()}</div>
+    <button class="s-item" data-a="push" data-v="notifications"><div class="s-ico">${I('bell',18)}</div><div class="grow t-title">${t('nav.notifications')}</div>${I('chevR',16)}</button>
+    <button class="s-item" data-a="toast" data-v="${t('profile.kycToast')}"><div class="s-ico">${I('shield',18)}</div><div class="grow t-title">${t('profile.kyc')}</div><span class="badge b-green">${t('verified')}</span></button>
+    <button class="s-item" data-a="toast" data-v="${t('profile.helpToast')}"><div class="s-ico">${I('help',18)}</div><div class="grow t-title">${t('profile.help')}</div>${I('chevR',16)}</button>
   </div>
-  <button class="btn btn-danger-soft" style="margin-top:16px" data-a="logout">${I('logout',18)} Log out</button>
-  <p class="t-sub" style="text-align:center;margin-top:14px;font-size:11px">Worksetu Local Sandbox v1.0 • No production connection</p>
+  <button class="btn btn-danger-soft" style="margin-top:16px" data-a="logout">${I('logout',18)} ${t('profile.logout')}</button>
+  <p class="t-sub" style="text-align:center;margin-top:14px;font-size:11px">${t('profile.version')}</p>
   </div>` }; };
 SCREENS['customer:profile'] = SCREENS['worker:profile'] = SCREENS['admin:profile'] = profileScreen;
 
@@ -778,7 +1089,9 @@ const app = document.getElementById('app');
 function render(keepScroll){
   const prev = app.querySelector('.content'); const st = keepScroll && prev ? prev.scrollTop : 0;
   document.documentElement.dataset.theme = S.theme;
-  if(!S.splashDone){ app.innerHTML = `<div class="splash">${LOGO(76)}<p style="margin-top:22px">COOPERATIVE GIG SERVICES</p><div class="loader"><i></i></div><div class="foot">SMART INDIA HACKATHON 2026</div></div>`; return; }
+  document.documentElement.lang = S.lang;
+  [['scroll-up','a11y.scrollUp'],['scroll-down','a11y.scrollDown']].forEach(([id,k])=>{ const b=document.getElementById(id); b.setAttribute('aria-label',t(k)); b.title=t(k); });
+  if(!S.splashDone){ app.innerHTML = `<div class="splash">${LOGO(76)}<p style="margin-top:22px">${t('app.tagline')}</p><div class="loader"><i></i></div><div class="foot">SMART INDIA HACKATHON 2026</div></div>`; return; }
   let scr;
   if(!S.user) scr = SCREENS.login();
   else { const top = S.stack[S.stack.length-1]; scr = top ? SCREENS[top.name](top.params||{}) : SCREENS[S.role+':'+S.tab](); }
@@ -803,14 +1116,14 @@ function scheduleRequest(){
   S.reqTimer = setTimeout(()=>{
     S.reqTimer=null; if(!S.online || S.request || S.role!=='worker') return;
     S.request = REQUESTS[S.reqIdx++ % REQUESTS.length]; S.reqStart = Date.now();
-    if(S.tab==='home' && !S.stack.length){ render(true); toast('New dispatch request nearby'); }
+    if(S.tab==='home' && !S.stack.length){ render(true); toast(t('toast.newReq')); }
   }, 3500);
 }
 setInterval(()=>{
   if(!S.request) return;
   const left = 30 - Math.floor((Date.now()-S.reqStart)/1000);
   const el = document.getElementById('req-count'); if(el) el.textContent = Math.max(0,left);
-  if(left<=0){ S.request=null; if(S.role==='worker'&&S.tab==='home'&&!S.stack.length){ render(true); toast('Request expired'); } }
+  if(left<=0){ S.request=null; if(S.role==='worker'&&S.tab==='home'&&!S.stack.length){ render(true); toast(t('toast.expired')); } }
 }, 1000);
 // Live clock in status bar
 setInterval(()=>{ const t=new Date(); document.querySelectorAll('.statusbar > span').forEach(s=>s.textContent=(t.getHours()%12||12)+':'+String(t.getMinutes()).padStart(2,'0')); }, 15000);
@@ -825,30 +1138,30 @@ const A = {
   push: v => push(v),
   back: () => back(),
   theme: () => { S.theme = S.theme==='dark'?'light':'dark'; render(true); },
-  lang: () => { S.lang = LANGS[(LANGS.indexOf(S.lang)+1)%LANGS.length]; render(true); toast('Language: '+S.lang); },
+  lang: v => { const next=normLang(v); if(next===S.lang) return; S.lang=next; render(true); toast(t('toast.lang',{lang:LANGS.find(l=>l[0]===next)[1]})); },
   service: v => { S.draft={date:0, slot:1}; push('service',{id:v}); },
   date: v => { S.draft.date=+v; if(S.draft.date===0&&S.draft.slot===0) S.draft.slot=1; render(true); },
   slot: v => { S.draft.slot=+v; render(true); },
   confirm: v => {
     const s=svc(v), id='WS-'+(24818+S.bookings.length);
-    S.bookings.unshift({id, service:v, date:DATES[S.draft.date].label==='Today'?'Today':DATES[S.draft.date].label==='Tomorrow'?'Tomorrow':DATES[S.draft.date].sub, slot:SLOTS[S.draft.slot], step:1, price:s.price+29});
-    S.notifs.unshift({icon:'check', title:'Booking confirmed', body:`${s.name} • ${WORKERS[v].name} assigned`, time:'now', unread:true, tone:'b-green'});
+    S.bookings.unshift({id, service:v, date:DATES()[S.draft.date].value, slot:SLOTS[S.draft.slot], step:1, price:s.price+29});
+    S.notifs.unshift({icon:'check', key:'booked', vars:{svc:v, name:WORKERS[v].name}, time:[0], unread:true, tone:'b-green'});
     S.stack=[{name:'success', params:{id}}]; S.anim='fade'; render();
   },
   'track-replace': v => { S.tab='bookings'; S.stack=[{name:'track',params:{id:v}}]; S.anim='fwd'; render(); },
   track: v => push('track',{id:v}),
   advance: v => { const b=S.bookings.find(x=>x.id===v); if(b.step<4){ b.step++; render(true); toast(STEPS[b.step].t + (b.step===4?' 🎉':'')); } },
   bfilter: v => { S.bookingFilter=v; render(true); },
-  'read-all': () => { S.notifs.forEach(n=>n.unread=false); render(true); toast('All caught up'); },
+  'read-all': () => { S.notifs.forEach(n=>n.unread=false); render(true); toast(t('toast.readAll')); },
   toast: v => toast(v),
-  online: () => { S.online=!S.online; if(!S.online){ S.request=null; clearTimeout(S.reqTimer); S.reqTimer=null; } render(true); toast(S.online?'You are now online':'You are now offline'); },
-  accept: () => { const r=S.request; S.request=null; S.jobs.unshift({id:'J-'+(5522+S.reqIdx), title:r.title, customer:r.customer, area:r.area, slot:'Today, in 30 min', pay:r.pay, status:'upcoming'}); render(true); toast('Job accepted • customer notified'); },
-  decline: () => { S.request=null; render(true); toast('Request declined'); },
-  'job-start': v => { S.jobs.find(j=>j.id===v).status='active'; render(true); toast('Job started • OTP verified'); },
-  'job-done': v => { const j=S.jobs.find(x=>x.id===v); j.status='done'; S.earningsToday+=j.pay; S.jobsToday++; S.week[6]+=j.pay; render(true); toast(inr(j.pay)+' credited to cooperative ledger'); },
-  approve: v => { const m=S.members[+v]; m.status='verified'; render(true); toast(m.name+' approved as member'); },
+  online: () => { S.online=!S.online; if(!S.online){ S.request=null; clearTimeout(S.reqTimer); S.reqTimer=null; } render(true); toast(t(S.online?'toast.online':'toast.offline')); },
+  accept: () => { const r=S.request; S.request=null; S.jobs.unshift({id:'J-'+(5522+S.reqIdx), title:r.title, customer:r.customer, area:r.area, slot:{day:'today', in:30}, pay:r.pay, status:'upcoming'}); render(true); toast(t('toast.accepted')); },
+  decline: () => { S.request=null; render(true); toast(t('toast.declined')); },
+  'job-start': v => { S.jobs.find(j=>j.id===v).status='active'; render(true); toast(t('toast.started')); },
+  'job-done': v => { const j=S.jobs.find(x=>x.id===v); j.status='done'; S.earningsToday+=j.pay; S.jobsToday++; S.week[6]+=j.pay; render(true); toast(t('toast.credited',{amt:inr(j.pay)})); },
+  approve: v => { const m=S.members[+v]; m.status='verified'; render(true); toast(t('toast.approved',{name:m.name})); },
   dfilter: v => { S.dispatchFilter=v; render(true); },
-  role: v => { if(S.role===v) return; S.role=v; S.tab='home'; S.stack=[]; S.request=null; clearTimeout(S.reqTimer); S.reqTimer=null; S.anim='fade'; render(); toast('Switched to '+PERSONAS[v].label+' portal'); },
+  role: v => { if(S.role===v) return; S.role=v; S.tab='home'; S.stack=[]; S.request=null; clearTimeout(S.reqTimer); S.reqTimer=null; S.anim='fade'; render(); toast(t('toast.switched',{role:PERSONAS[v].label})); },
   logout: () => { S.user=null; S.stack=[]; S.tab='home'; S.request=null; S.anim='fade'; render(); }
 };
 
@@ -863,7 +1176,7 @@ document.addEventListener('submit', e => {
   const u=document.getElementById('lg-user').value.trim().toLowerCase(), p=document.getElementById('lg-pass').value;
   if((u===MASTER.email || u===MASTER.phone) && p===MASTER.password){
     const btn=e.target.querySelector('button[type=submit]'); btn.innerHTML='<span style="display:inline-block;width:18px;height:18px;border:2.5px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite"></span>';
-    setTimeout(()=>{ S.user=MASTER; S.role=S.loginRole; S.tab='home'; S.stack=[]; S.anim='fade'; render(); toast('Signed in as '+PERSONAS[S.role].name); }, 700);
+    setTimeout(()=>{ S.user=MASTER; S.role=S.loginRole; S.tab='home'; S.stack=[]; S.anim='fade'; render(); toast(t('toast.signedIn',{name:PERSONAS[S.role].name})); }, 700);
   } else {
     const card=document.querySelector('.login-card'); card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
     document.getElementById('lg-err').classList.add('show');
