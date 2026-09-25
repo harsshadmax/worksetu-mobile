@@ -714,6 +714,10 @@ const STR = {
   'earn.trend':['▲ 18% vs last week','▲ கடந்த வாரத்தை விட 18%','▲ पिछले सप्ताह से 18%','▲ গত সপ্তাহের চেয়ে 18%'],
   'earn.ledger':['Ledger settlements','கணக்கேட்டுத் தீர்வுகள்','खाता निपटान','খাতার নিষ্পত্তি'],
   'earn.dividend':['Quarterly dividend','காலாண்டு ஈவுத்தொகை','तिमाही लाभांश','ত্রৈমাসিক লভ্যাংশ'],
+  'earn.jobSplit':['Last job — where it went','கடைசி வேலை — பணம் எங்கே','पिछला काम — पैसा कहाँ गया','শেষ কাজ — টাকা কোথায় গেল'],
+  'earn.customerPaid':['Customer paid','வாடிக்கையாளர் செலுத்தியது','ग्राहक ने चुकाया','গ্রাহক দিয়েছেন'],
+  'earn.youReceived':['You received','நீங்கள் பெற்றது','आपको मिला','আপনি পেয়েছেন'],
+  'earn.dividendNote':['The cooperative dividend is paid on top of your earnings — it is not taken from this job.','கூட்டுறவு ஈவுத்தொகை உங்கள் வருமானத்துடன் க்கூடுதலாக வழங்கப்படுகிறது.','सहकारी लाभांश आपकी कमाई के ऊपर दिया जाता है — यह इस काम से नहीं काटा जाता।','সমবায় লভ্যাংশ আপনার আয়ের উপরে দেওয়া হয় — এই কাজ থেকে কাটা হয় না।'],
   'earn.withdraw':['Withdraw to bank','வங்கிக்குப் பணம் எடு','बैंक में निकालें','ব্যাংকে তুলুন'],
   'earn.withdrawToast':['Withdrawal requested (simulated)','பணம் எடுக்கக் கோரப்பட்டது (உருவகம்)','निकासी का अनुरोध किया गया (सिमुलेटेड)','টাকা তোলার অনুরোধ করা হয়েছে (সিমুলেটেড)'],
   // admin
@@ -1024,10 +1028,24 @@ SCREENS['worker:jobs'] = () => ({ top:titleBar(t('jobs.title'),t('jobs.sub'),fal
 </div></div>` });
 
 SCREENS['worker:earnings'] = () => { const max=Math.max(...S.week), tot=S.week.reduce((a,b)=>a+b,0); const days=tl('days.initials');
+  // Mirrors GET /workers/me/bookings/:id/earnings: the customer's payment,
+  // the commission taken out of it, and what the worker keeps. Derived from
+  // the stored payout so the three figures reconcile.
+  const COMMISSION_PCT=15, lastJob=S.jobs.filter(j=>j.status==='done')[0];
+  const lastPaid=lastJob?Math.round(lastJob.pay/(1-COMMISSION_PCT/100)):0;
+  const lastCut=lastJob?lastPaid-lastJob.pay:0;
   return { top:titleBar(t('nav.earnings'),t('earn.sub'),false), nav:true, body:`<div class="page">
   <div class="hero-card" style="margin-top:0"><span class="pill-light"><i></i>${t('earn.week')}</span><h2 style="font-size:34px">${inr(tot)}</h2><p>${t('earn.retention')}</p></div>
   <div class="card" style="padding:16px;margin-top:14px"><div class="row" style="justify-content:space-between"><h3 style="font-size:13px;font-weight:800;text-transform:uppercase">${t('earn.daily')}</h3><span class="trend">${t('earn.trend')}</span></div>
   <div class="chart">${S.week.map((v,i)=>`<div class="bar ${i===6?'today':''}"><i style="height:${(v/max)*100}%;animation-delay:${i*60}ms"></i><span>${days[i]}</span></div>`).join('')}</div></div>
+  ${lastJob?`<div class="sec-head"><h3>${t('earn.jobSplit')}</h3></div>
+  <div class="card" style="padding:14px 16px">
+    <div class="t-sub" style="margin-bottom:8px">${t('job.'+lastJob.title)} • ${lastJob.id}</div>
+    <div class="sum-row"><span class="muted">${t('earn.customerPaid')}</span><span>${inr(lastPaid)}</span></div>
+    <div class="sum-row"><span class="muted">${t('book.commission')} (${COMMISSION_PCT}%)</span><span>-${inr(lastCut)}</span></div>
+    <div class="sum-row total"><span>${t('earn.youReceived')}</span><span style="color:var(--success)">${inr(lastJob.pay)}</span></div>
+    <p class="t-sub" style="margin-top:10px;font-size:11.5px">${t('earn.dividendNote')}</p>
+  </div>`:''}
   <div class="sec-head"><h3>${t('earn.ledger')}</h3></div>
   <div class="card" style="padding:4px 14px">${S.jobs.filter(j=>j.status==='done').map(j=>`<div class="feed-item"><div class="s-ico" style="background:var(--success-soft);color:var(--success)">${I('coins',17)}</div><div class="grow"><div class="t-title" style="font-size:13.5px">${t('job.'+j.title)}</div><div class="t-sub">${j.id} • ${jobSlot(j.slot)}</div></div><b style="color:var(--success)">+${inr(j.pay)}</b></div>`).join('')}
   <div class="feed-item"><div class="s-ico" style="background:var(--primary-soft);color:var(--primary)">${I('bank',17)}</div><div class="grow"><div class="t-title" style="font-size:13.5px">${t('earn.dividend')}</div><div class="t-sub">Adyar Plumbers Cooperative</div></div><b style="color:var(--success)">+₹2,340</b></div></div>
