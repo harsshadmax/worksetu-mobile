@@ -600,9 +600,9 @@ const STR = {
   'book.home':['Home','வீடு','घर','বাড়ি'],
   'book.price':['Price details','விலை விவரங்கள்','मूल्य विवरण','মূল্যের বিবরণ'],
   'book.charge':['Service charge','சேவைக் கட்டணம்','सेवा शुल्क','পরিষেবা চার্জ'],
-  'book.welfare':['Cooperative welfare fee','கூட்டுறவு நலக் கட்டணம்','सहकारी कल्याण शुल्क','সমবায় কল্যাণ ফি'],
+  'book.welfare':['Worker receives','தொழிலாளர் பெறுவது','कामगार को मिलता है','কর্মী পান'],
   'book.commission':['Platform commission','தளக் கமிஷன்','प्लेटफ़ॉर्म कमीशन','প্ল্যাটফর্ম কমিশন'],
-  'book.note':['100% of the service charge goes to the worker','சேவைக் கட்டணத்தின் 100% தொழிலாளருக்கே செல்கிறது','सेवा शुल्क का 100% कामगार को जाता है','পরিষেবা চার্জের 100% কর্মীর কাছে যায়'],
+  'book.note':['Every rupee is itemised. Members also earn a cooperative dividend on their earnings.','ஒவ்வொரு ரூபாயும் விவரிக்கப்படுகிறது. உறுப்பினர்கள் தங்கள் வருமானத்தில் கூட்டுறவு ஈவுத்தொகையும் பெறுகிறார்கள்.','हर रुपया विवरण सहित दिखाया गया है। सदस्यों को उनकी कमाई पर सहकारी लाभांश भी मिलता है।','প্রতিটি টাকা বিশদভাবে দেখানো হয়। সদস্যরা তাঁদের আয়ের উপর সমবায় লভ্যাংশও পান।'],
   // dates
   'day.today':['Today','இன்று','आज','আজ'],
   'day.tomorrow':['Tomorrow','நாளை','कल','আগামীকাল'],
@@ -709,7 +709,7 @@ const STR = {
   'jobs.markDone':['Mark complete','முடிந்ததாகக் குறி','पूरा चिह्नित करें','সম্পন্ন হিসেবে চিহ্নিত করুন'],
   'earn.sub':['Cooperative ledger','கூட்டுறவுக் கணக்கேடு','सहकारी खाता-बही','সমবায় খাতা'],
   'earn.week':['This week','இந்த வாரம்','इस सप्ताह','এই সপ্তাহ'],
-  'earn.retention':['100% fee retention • zero platform commission','100% கட்டணம் உங்களுக்கே • தளக் கமிஷன் இல்லை','100% शुल्क आपका • शून्य प्लेटफ़ॉर्म कमीशन','100% ফি আপনার • শূন্য প্ল্যাটফর্ম কমিশন'],
+  'earn.retention':['Itemised commission • cooperative dividend on your earnings','விவரிக்கப்பட்ட கமிஷன் • உங்கள் வருமானத்தில் கூட்டுறவு ஈவுத்தொகை','विवरण सहित कमीशन • आपकी कमाई पर सहकारी लाभांश','বিশদ কমিশন • আপনার আয়ের উপর সমবায় লভ্যাংশ'],
   'earn.daily':['Daily earnings','தினசரி வருமானம்','दैनिक कमाई','দৈনিক আয়'],
   'earn.trend':['▲ 18% vs last week','▲ கடந்த வாரத்தை விட 18%','▲ पिछले सप्ताह से 18%','▲ গত সপ্তাহের চেয়ে 18%'],
   'earn.ledger':['Ledger settlements','கணக்கேட்டுத் தீர்வுகள்','खाता निपटान','খাতার নিষ্পত্তি'],
@@ -904,7 +904,11 @@ SCREENS['customer:services'] = () => ({ top:titleBar(t('nav.services'),t('servic
 </div>` });
 
 SCREENS.service = ({id}) => {
-  const s=svc(id), w=WORKERS[id], d=S.draft; const fee=29, total=s.price+fee;
+  const s=svc(id), w=WORKERS[id], d=S.draft;
+  // Mirrors the server: PlatformConfig.commissionPercent is taken out of the
+  // service charge, it is not added on top of it. The customer pays the
+  // charge; the split is shown so they can see where it goes.
+  const COMMISSION_PCT=15, commission=Math.round(s.price*COMMISSION_PCT/100), workerGets=s.price-commission, total=s.price;
   return { top:titleBar(s.name,t('book.sub')), cta:`<div class="row" style="gap:14px"><div><div class="t-sub" style="margin:0">${t('total')}</div><div style="font-size:20px;font-weight:900">${inr(total)}</div></div><button class="btn btn-primary" style="flex:1" data-a="confirm" data-v="${id}">${t('book.confirm')}</button></div>`,
   body:`<div class="page">
     <div class="card svc-hero"><div class="svc-ico" style="background:${s.color}1f;color:${s.color};width:56px;height:56px;border-radius:16px">${I(s.icon,28)}</div>
@@ -922,8 +926,8 @@ SCREENS.service = ({id}) => {
     <div class="sec-head"><h3>${t('book.price')}</h3></div>
     <div class="card" style="padding:14px 16px">
       <div class="sum-row"><span class="muted">${t('book.charge')}</span><span>${inr(s.price)}</span></div>
-      <div class="sum-row"><span class="muted">${t('book.welfare')}</span><span>${inr(fee)}</span></div>
-      <div class="sum-row"><span class="muted">${t('book.commission')}</span><span style="color:var(--success);font-weight:700">₹0</span></div>
+      <div class="sum-row"><span class="muted">${t('book.commission')} (${COMMISSION_PCT}%)</span><span>-${inr(commission)}</span></div>
+      <div class="sum-row"><span class="muted">${t('book.welfare')}</span><span style="color:var(--success);font-weight:700">${inr(workerGets)}</span></div>
       <div class="sum-row total"><span>${t('total')}</span><span>${inr(total)}</span></div>
     </div>
     <p class="t-sub" style="text-align:center;margin-top:12px;font-size:11.5px">${t('book.note')}</p>
