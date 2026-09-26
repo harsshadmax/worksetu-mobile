@@ -588,7 +588,7 @@ const STR = {
   'book.sub':['Book a verified technician','சரிபார்க்கப்பட்ட தொழில்நுட்பரை முன்பதிவு செய்யுங்கள்','सत्यापित तकनीशियन बुक करें','যাচাইকৃত টেকনিশিয়ান বুক করুন'],
   'total':['Total','மொத்தம்','कुल','মোট'],
   'book.confirm':['Confirm booking','முன்பதிவை உறுதிசெய்','बुकिंग पक्की करें','বুকিং নিশ্চিত করুন'],
-  'book.aadhaar':['Documents verified','ஆவணங்கள் சரிபார்க்கப்பட்டது','दस्तावेज़ सत्यापित','নথি যাচাইকৃত'],
+  'book.docsVerified':['Documents verified','ஆவணங்கள் சரிபார்க்கப்பட்டது','दस्तावेज़ सत्यापित','নথি যাচাইকৃত'],
   'book.fair':['Fair price regulated','நியாய விலை ஒழுங்குபடுத்தப்பட்டது','उचित मूल्य विनियमित','ন্যায্য মূল্য নিয়ন্ত্রিত'],
   'book.assigned':['Assigned worker','ஒதுக்கப்பட்ட தொழிலாளர்','नियुक्त कामगार','নির্ধারিত কর্মী'],
   'book.continuity':['Continuity match','தொடர்ச்சிப் பொருத்தம்','निरंतरता मिलान','ধারাবাহিকতা মিল'],
@@ -917,7 +917,7 @@ SCREENS.service = ({id}) => {
   body:`<div class="page">
     <div class="card svc-hero"><div class="svc-ico" style="background:${s.color}1f;color:${s.color};width:56px;height:56px;border-radius:16px">${I(s.icon,28)}</div>
       <div><div style="font-size:20px;font-weight:900;text-transform:uppercase">${s.name}</div><div class="t-sub" style="line-height:1.45">${s.desc}</div></div>
-      <div class="row" style="gap:6px;flex-wrap:wrap"><span class="badge b-green">${I('shield',12)} ${t('book.aadhaar')}</span><span class="badge b-blue">${t('book.fair')}</span></div></div>
+      <div class="row" style="gap:6px;flex-wrap:wrap"><span class="badge b-green">${I('shield',12)} ${t('book.docsVerified')}</span><span class="badge b-blue">${t('book.fair')}</span></div></div>
     <div class="sec-head"><h3>${t('book.assigned')}</h3>${w.served?`<span class="badge b-blue">${t('book.continuity')}</span>`:''}</div>
     <div class="card list-item">${avatar(w.init,w.color)}<div class="grow"><div class="t-title">${w.name}</div><div class="t-sub truncate">${w.coop}</div>
       <div class="row" style="gap:10px;margin-top:6px"><span class="stars">${I('star',12)} ${w.rating}</span><span class="t-sub" style="margin:0">${t('book.exp',{jobs:w.jobs,yrs:w.yrs})}</span></div></div></div>
