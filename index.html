@@ -319,6 +319,7 @@ html[data-theme="dark"] .toast{background:#e5e9f2;color:#0f172a}
 }
 .sandbox-tag{position:absolute;left:50%;transform:translateX(-50%);bottom:4px;font-size:9px;font-weight:700;color:var(--faint);letter-spacing:.08em;pointer-events:none;z-index:6;display:none}
 </style>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
 </head>
 <body>
 <div id="app"></div>
@@ -334,19 +335,215 @@ html[data-theme="dark"] .toast{background:#e5e9f2;color:#0f172a}
    Everything below is hard-coded demo data held in memory.
    ===================================================================== */
 
-// ---- Network kill-switch: guarantees nothing can reach a live backend ----
-(function(){
-  const block = (what) => { console.warn('[Worksetu Local] Blocked network call:', what); };
-  window.fetch = (url) => { block(url); return Promise.reject(new Error('Network disabled in local sandbox')); };
-  const XO = XMLHttpRequest.prototype.open;
-  XMLHttpRequest.prototype.open = function(m,u){ block(u); this._blocked = true; return XO.apply(this, arguments); };
-  XMLHttpRequest.prototype.send = function(){ if(this._blocked) this.abort(); };
-  window.WebSocket = function(u){ block(u); throw new Error('WebSocket disabled in local sandbox'); };
-  navigator.sendBeacon = (u) => { block(u); return false; };
-})();
+// The standalone build shipped a kill-switch here that replaced fetch,
+// XMLHttpRequest, WebSocket and sendBeacon with rejecting stubs, so nothing
+// could reach a backend. This build signs in against the live API, so the
+// kill-switch is gone. Screens that have not been wired yet still read from
+// the in-memory demo data below.
 
-// ---- Master account (local only) ----
-const MASTER = { email:'master@worksetu.local', phone:'9999999999', password:'Master@2026' };
+// ---- Backend ----
+// Same-origin by default: the preview server proxies /api/v1 to the Render
+// API. Set window.WORKSETU_API_BASE to the API origin when this is served
+// from somewhere that is not proxying (that host must then be in the API's
+// CORS_ALLOWED_ORIGINS).
+const API_BASE = (window.WORKSETU_API_BASE || '') + '/api/v1';
+
+// Cooperative commission, matching PlatformConfig.commissionPercent on the API.
+const COMMISSION_PCT = 15;
+
+// Seeded cooperative accounts on the live API. These are demo members, not
+// the credentials of any real person.
+const DEMO_ACCOUNTS = {
+  customer: { identifier:'deepika@example.com',     password:'Customer@123' },
+  worker:   { identifier:'ravi.kumar@example.com',  password:'Worker@123' },
+  admin:    { identifier:'registrar@worksetu.coop', password:'AdminPass@123' }
+};
+
+async function apiLogin(role, identifier, password){
+  const res = await fetch(`${API_BASE}/auth/${role}/login`, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json' },
+    credentials:'include', // refresh token comes back as an httpOnly cookie
+    body: JSON.stringify({ identifier, password })
+  });
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data?.error?.message || `Sign-in failed (${res.status})`);
+  return data; // { userId, token, role }
+}
+
+async function apiMe(token){
+  const res = await fetch(`${API_BASE}/users/me`, { headers:{ Authorization:`Bearer ${token}` }, credentials:'include' });
+  if(!res.ok) throw new Error('Could not load profile');
+  return res.json();
+}
+
+async function apiGet(path){
+  const res = await fetch(`${API_BASE}${path}`, { headers:{ Authorization:`Bearer ${S.token}` }, credentials:'include' });
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data?.error?.message || `Request failed (${res.status})`);
+  return data;
+}
+async function apiPost(path, body){
+  const res = await fetch(`${API_BASE}${path}`, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${S.token}`, 'Idempotency-Key': crypto.randomUUID() },
+    credentials:'include',
+    body: JSON.stringify(body || {})
+  });
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data?.error?.message || `Request failed (${res.status})`);
+  return data;
+}
+
+// The phone-shaped demo catalogue and the server's service categories share
+// ids for everything except the local-only air-conditioning tile.
+const SERVICE_ID_MAP = { ac:'electrical' };
+const serverServiceId = id => SERVICE_ID_MAP[id] || id;
+
+// Adyar, Chennai — the seeded customer's own address, so the spatial search
+// has cooperative members within range of it.
+const DEMO_LOCATION = { address:'14, 2nd Main Rd, Gandhi Nagar, Adyar, Chennai 600020', lat:13.0012, lng:80.2565 };
+
+// ---- live dispatch socket ----
+// Rooms are assigned by the server at handshake; there is no join event to
+// send. The access token goes in the handshake auth payload, exactly as the
+// HTTP requests carry it in the Authorization header.
+function connectSocket(){
+  if(S.socket || typeof io === 'undefined' || !S.token) return;
+  const url = window.WORKSETU_API_BASE || undefined; // same origin via the preview proxy
+  const sock = io(url, { auth:{ token:S.token }, transports:['websocket','polling'], withCredentials:true });
+  S.socket = sock;
+
+  sock.on('connect', ()=>{ S.socketLive=true; render(true); });
+  sock.on('disconnect', ()=>{ S.socketLive=false; render(true); });
+  sock.on('connect_error', (e)=>{ S.socketLive=false; console.warn('[socket]', e.message); });
+
+  // Customer: the dispatch engine reports which tier it is on.
+  sock.on('dispatch:update', async ({ bookingId, phase }) => {
+    if(!S.activeBooking || S.activeBooking.id !== bookingId) return;
+    S.activeBooking.phase = phase;
+    if(phase === 'ASSIGNED' || phase === 'CONFIRMED' || phase === 'IN_PROGRESS' || phase === 'COMPLETED'){
+      try{ S.activeBooking.detail = await apiGet(`/bookings/${bookingId}`); }catch(e){}
+    }
+    render(true);
+  });
+
+  sock.on('dispatch:exhausted', ({ bookingId }) => {
+    if(!S.activeBooking || S.activeBooking.id !== bookingId) return;
+    S.activeBooking.phase = 'EXHAUSTED';
+    render(true);
+    toast(t('dispatch.none'));
+  });
+
+  // Worker: a real offer, with the server's own countdown.
+  sock.on('dispatch:offer', async ({ dispatchLogId, bookingId, phase, offerExpiresInSeconds }) => {
+    // A worker cannot read a booking they have not accepted, which is the
+    // correct authorization boundary. The details for an open offer come
+    // from the worker's own incoming-offers endpoint instead.
+    let offer = null;
+    try{
+      const incoming = await apiGet('/workers/me/incoming');
+      offer = incoming.find(o => o.dispatchLogId === dispatchLogId) || incoming[0] || null;
+    }catch(e){}
+
+    const total = offer ? Number(offer.estimatedTotal) : null;
+    const secondsLeft = offer?.offerExpiresAt
+      ? Math.max(1, Math.round((new Date(offer.offerExpiresAt) - Date.now())/1000))
+      : (offerExpiresInSeconds || 45);
+
+    S.request = {
+      live: true, dispatchLogId, bookingId, phase,
+      title: offer ? t('svc.'+offer.serviceCategory) : t('dispatch.newJob'),
+      customer: offer?.customerAreaLabel ? offer.customerAreaLabel.split(',').slice(-2)[0].trim() : '—',
+      area: offer?.distanceKm != null ? `${Number(offer.distanceKm).toFixed(1)} km` : '',
+      // The worker keeps everything but the cooperative's commission.
+      pay: total != null ? Math.round(total * (100 - COMMISSION_PCT) / 100) : null
+    };
+    S.reqStart = Date.now();
+    S.reqWindow = secondsLeft;
+    render(true);
+    toast(t('toast.newReq'));
+  });
+
+  sock.on('notification:new', ()=>{ /* in-app notifications already render from state */ });
+}
+
+function disconnectSocket(){ if(S.socket){ try{ S.socket.close(); }catch(e){} S.socket=null; S.socketLive=false; } }
+
+// ---- worker location ----
+// Candidate scoring only trusts a position while the ping behind it is
+// recent, so an online worker reports where they are. Real coordinates when
+// the browser will give them, otherwise the member's registered area.
+const WORKER_FALLBACK_POS = { lat:13.0067, lng:80.2206 }; // Adyar / Guindy, Chennai
+
+async function pingLocation(){
+  if(S.role!=='worker' || !S.online || !S.token) return;
+  // The endpoint is rate limited; going off duty and straight back on must
+  // not fire a second ping into that window.
+  if(S.lastPing && Date.now() - S.lastPing < 30000) return;
+  const send = async (lat,lng) => {
+    try{ await apiPost('/workers/location-ping', { lat, lng }); S.lastPing = Date.now(); }
+    catch(e){ console.warn('[ping]', e.message); }
+  };
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(
+      p => send(p.coords.latitude, p.coords.longitude),
+      () => send(WORKER_FALLBACK_POS.lat, WORKER_FALLBACK_POS.lng),
+      { timeout: 4000, maximumAge: 60000 }
+    );
+  } else {
+    await send(WORKER_FALLBACK_POS.lat, WORKER_FALLBACK_POS.lng);
+  }
+}
+
+// An offer may already be open when the app starts or reconnects — the
+// socket only carries new ones, so ask for the current state once.
+async function loadIncomingOffer(){
+  if(S.role!=='worker' || !S.token || S.request) return;
+  try{
+    const incoming = await apiGet('/workers/me/incoming');
+    const offer = incoming[0];
+    if(!offer) return;
+    const total = Number(offer.estimatedTotal);
+    S.request = {
+      live:true, dispatchLogId:offer.dispatchLogId, bookingId:offer.bookingId, phase:'TOP3',
+      title: t('svc.'+offer.serviceCategory),
+      customer: offer.customerAreaLabel ? offer.customerAreaLabel.split(',').slice(-2)[0].trim() : '—',
+      area: offer.distanceKm!=null ? `${Number(offer.distanceKm).toFixed(1)} km` : '',
+      pay: Number.isFinite(total) ? Math.round(total * (100 - COMMISSION_PCT) / 100) : null
+    };
+    S.reqStart = Date.now();
+    S.reqWindow = offer.offerExpiresAt ? Math.max(1, Math.round((new Date(offer.offerExpiresAt) - Date.now())/1000)) : 45;
+    render(true);
+  }catch(e){}
+}
+
+function startLocationPing(){
+  if(S.pingTimer) return;
+  pingLocation();
+  S.pingTimer = setInterval(pingLocation, 60000);
+}
+function stopLocationPing(){ if(S.pingTimer){ clearInterval(S.pingTimer); S.pingTimer=null; } }
+
+// On reload the in-memory access token is gone, but the httpOnly refresh
+// cookie survives. Trade it for a fresh token so a reload does not look like
+// a sign-out. Failure here is normal (no cookie, expired session): stay on
+// the login screen and say nothing.
+async function resumeSession(){
+  try{
+    const res = await fetch(`${API_BASE}/auth/refresh`, { method:'POST', credentials:'include' });
+    if(!res.ok) return;
+    const { token } = await res.json();
+    const me = await apiMe(token);
+    S.token = token;
+    S.user = { id: me.userId, name: me.fullName, email: me.email, phone: me.phone,
+               address: me.customerProfile?.defaultAddress || null };
+    S.role = (me.role || S.role).toLowerCase();
+    connectSocket();
+    if(S.role==='worker'){ startLocationPing(); loadIncomingOffer(); }
+    render();
+  }catch(e){ /* stay signed out */ }
+}
 
 const PERSONAS = {
   customer:{ name:'Deepika Ramaswamy', short:'Deepika', get meta(){ return 'Adyar, Chennai'; }, initials:'DR', color:'#2563eb', get label(){ return t('persona.customer'); } },
@@ -431,7 +628,8 @@ const dayLabel = v => Array.isArray(v) ? v[0]+' '+tl('months')[v[1]] : t('day.'+
 const SLOTS = ['9:00 AM','11:00 AM','1:00 PM','3:00 PM','5:00 PM','7:00 PM'];
 
 const S = {
-  user:null, role:'customer', loginRole:'customer', tab:'home', stack:[], anim:'fade',
+  user:null, token:null, socket:null, socketLive:false, activeBooking:null, reqWindow:45, bookingBusy:false, pingTimer:null, lastPing:0,
+  role:'customer', loginRole:'customer', tab:'home', stack:[], anim:'fade',
   theme:'light', lang:'en', splashDone:false,
   draft:{date:0, slot:1},
   bookingFilter:'active',
@@ -540,7 +738,28 @@ const STR = {
   'login.pass':['Enter password','கடவுச்சொல்லை உள்ளிடவும்','पासवर्ड दर्ज करें','পাসওয়ার্ড লিখুন'],
   'login.err':['Invalid credentials. Use the local master account below.','தவறான விவரங்கள். கீழே உள்ள உள்ளூர் முதன்மைக் கணக்கைப் பயன்படுத்தவும்.','अमान्य क्रेडेंशियल। नीचे दिए गए स्थानीय मास्टर खाते का उपयोग करें।','ভুল তথ্য। নিচের স্থানীয় মাস্টার অ্যাকাউন্ট ব্যবহার করুন।'],
   'login.submit':['Sign in','உள்நுழை','साइन इन करें','সাইন ইন'],
-  'login.master':['⚡ LOCAL MASTER ACCOUNT','⚡ உள்ளூர் முதன்மைக் கணக்கு','⚡ स्थानीय मास्टर खाता','⚡ স্থানীয় মাস্টার অ্যাকাউন্ট'],
+  'login.master':['⚡ COOPERATIVE DEMO MEMBER','⚡ கூட்டுறவு மாதிரி உறுப்பினர்','⚡ सहकारी डेमो सदस्य','⚡ সমবায় ডেমো সদস্য'],
+  'login.waking':['waking the server…','சேவையகம் தயாராகிறது…','सर्वर जाग रहा है…','সার্ভার জাগছে…'],
+  'dispatch.title':['Finding a member','உறுப்பினரைத் தேடுகிறது','सदस्य खोज रहे हैं','সদস্য খোঁজা হচ্ছে'],
+  'dispatch.searching':['Contacting cooperative members','கூட்டுறவு உறுப்பினர்களைத் தொடர்பு கொள்கிறது','सहकारी सदस्यों से संपर्क','সমবায় সদস্যদের সঙ্গে যোগাযোগ'],
+  'dispatch.assigned':['A member accepted your job','ஒரு உறுப்பினர் ஏற்றுக்கொண்டார்','एक सदस्य ने स्वीकार किया','একজন সদস্য গ্রহণ করেছেন'],
+  'dispatch.none':['No member is available right now','தற்போது யாரும் இல்லை','अभी कोई सदस्य उपलब्ध नहीं','এখন কোনও সদস্য নেই'],
+  'dispatch.noneBody':['Every member in range was offered this job and none could take it. Nothing has been charged.','வரம்பில் உள்ள அனைவருக்கும் வழங்கப்பட்டது. கட்டணம் இல்லை.','सीमा के सभी सदस्यों को भेजा गया। कोई शुल्क नहीं।','পরিসরের সবাইকে পাঠানো হয়েছে। কোনও চার্জ নেই।'],
+  'dispatch.progress':['Dispatch progress','அனுப்புதல் நிலை','डिस्पैच प्रगति','ডিসপ্যাচ অগ্রগতি'],
+  'dispatch.worker':['Assigned member','ஒதுக்கப்பட்ட உறுப்பினர்','नियुक्त सदस्य','নিযুক্ত সদস্য'],
+  'dispatch.p.requested':['Request received','கோரிக்கை பெறப்பட்டது','अनुरोध प्राप्त','অনুরোধ গৃহীত'],
+  'dispatch.p.top3':['Offered to the three best-matched members','சிறந்த மூன்று உறுப்பினர்களுக்கு','तीन सर्वश्रेष्ठ सदस्यों को','সেরা তিন সদস্যকে'],
+  'dispatch.p.pool':['Offered to the wider cooperative pool','பரந்த கூட்டுறவுக் குழுவிற்கு','व्यापक सहकारी समूह को','বৃহত্তর সমবায় গোষ্ঠীকে'],
+  'dispatch.p.assigned':['Member assigned','உறுப்பினர் ஒதுக்கப்பட்டார்','सदस्य नियुक्त','সদস্য নিযুক্ত'],
+  'dispatch.live':['live','நேரலை','लाइव','লাইভ'],
+  'dispatch.connecting':['connecting…','இணைக்கிறது…','जुड़ रहा है…','সংযুক্ত হচ্ছে…'],
+  'dispatch.doneTag':['done','முடிந்தது','हो गया','সম্পন্ন'],
+  'dispatch.now':['now','இப்போது','अभी','এখন'],
+  'dispatch.elapsed':['{n}s elapsed','{n}வி கடந்தது','{n}से बीते','{n}সে অতিক্রান্ত'],
+  'dispatch.gone':['This request is no longer active','இந்தக் கோரிக்கை செயலில் இல்லை','यह अनुरोध सक्रिय नहीं','এই অনুরোধ সক্রিয় নয়'],
+  'dispatch.taken':['Another member took this job first','வேறு உறுப்பினர் எடுத்துவிட்டார்','दूसरे सदस्य ने ले लिया','অন্য সদস্য নিয়ে নিয়েছেন'],
+  'dispatch.newJob':['New dispatch request','புதிய கோரிக்கை','नया अनुरोध','নতুন অনুরোধ'],
+  'dispatch.note':['Rates are fixed before the request and do not rise with demand.','கட்டணம் முன்பே நிர்ணயிக்கப்படுகிறது.','दरें पहले तय होती हैं।','হার আগেই নির্ধারিত।'],
   'login.masterHint':['Tap to autofill • works for all portals','தானாக நிரப்பத் தட்டவும் • அனைத்துத் தளங்களிலும் செயல்படும்','ऑटोफ़िल के लिए टैप करें • सभी पोर्टल पर काम करता है','অটোফিল করতে ট্যাপ করুন • সব পোর্টালে কাজ করে'],
   'login.noAccount':["Don't have an account?",'கணக்கு இல்லையா?','खाता नहीं है?','অ্যাকাউন্ট নেই?'],
   'login.register':['Register here','இங்கே பதிவு செய்யவும்','यहाँ रजिस्टर करें','এখানে নিবন্ধন করুন'],
@@ -671,7 +890,7 @@ const STR = {
   'worker.offlineSub':['Go online to receive jobs','வேலைகளைப் பெற ஆன்லைனுக்கு வாருங்கள்','काम पाने के लिए ऑनलाइन हों','কাজ পেতে অনলাইনে আসুন'],
   'kpi.rating':['Rating','மதிப்பீடு','रेटिंग','রেটিং'],
   'req.new':['New dispatch request','புதிய பணிக் கோரிக்கை','नया डिस्पैच अनुरोध','নতুন ডিসপ্যাচ অনুরোধ'],
-  'req.earn':['You earn (100% retained)','உங்கள் வருமானம் (100% உங்களுக்கே)','आपकी कमाई (100% आपकी)','আপনার আয় (100% আপনার)'],
+  'req.earn':['You earn (after 15% cooperative commission)','உங்கள் வருமானம் (15% கமிஷன் கழித்து)','आपकी कमाई (15% सहकारी कमीशन के बाद)','আপনার আয় (১৫% সমবায় কমিশনের পরে)'],
   'req.decline':['Decline','நிராகரி','अस्वीकार करें','প্রত্যাখ্যান'],
   'req.accept':['Accept job','வேலையை ஏற்றுக்கொள்','काम स्वीकार करें','কাজ গ্রহণ করুন'],
   'req.looking':['Looking for nearby jobs…','அருகிலுள்ள வேலைகளைத் தேடுகிறது…','आस-पास के काम खोजे जा रहे हैं…','কাছাকাছি কাজ খোঁজা হচ্ছে…'],
@@ -787,7 +1006,10 @@ const langPicker = (cls='seg lang-seg') => `<div class="${cls}" role="group" ari
 // ---- persistence (per-tab, optional; language is also remembered across tabs) ----
 function save(){ try{ sessionStorage.setItem('ws-local', JSON.stringify({user:!!S.user, role:S.role, theme:S.theme, lang:S.lang})); }catch(e){} try{ localStorage.setItem('ws-lang', S.lang); }catch(e){} }
 function load(){
-  try{ const d=JSON.parse(sessionStorage.getItem('ws-local')||'null'); if(d){ if(d.user){S.user=MASTER; S.splashDone=true;} S.role=d.role||'customer'; S.theme=d.theme||'light'; S.lang=d.lang||'en'; } }catch(e){}
+  // The access token is deliberately not persisted. On reload we ask the API
+  // to mint a new one from the refresh cookie (resumeSession below); until
+  // that answers, the app is signed out.
+  try{ const d=JSON.parse(sessionStorage.getItem('ws-local')||'null'); if(d){ S.role=d.role||'customer'; S.theme=d.theme||'light'; S.lang=d.lang||'en'; } }catch(e){}
   try{ S.lang=localStorage.getItem('ws-lang')||S.lang; }catch(e){}
   S.lang=normLang(S.lang);
 }
@@ -844,7 +1066,7 @@ SCREENS.login = () => {
       <div style="margin-bottom:16px">${LOGO(36)}
         <div style="margin-top:12px"><div class="eyebrow" style="font-size:13px">${t('login.heading.'+r)}</div><div class="t-sub" style="margin:0;font-size:11.5px">${copy[2]}</div></div></div>
       <form id="login-form" autocomplete="off">
-        <div class="field"><label>${t('login.user')}</label><div class="input">${I('mail',18)}<input id="lg-user" placeholder="${t('login.userPh',{email:MASTER.email})}" inputmode="email"></div></div>
+        <div class="field"><label>${t('login.user')}</label><div class="input">${I('mail',18)}<input id="lg-user" placeholder="${t('login.userPh',{email:DEMO_ACCOUNTS[r].identifier})}" inputmode="email"></div></div>
         <div class="field"><label>${t('login.pass')}</label><div class="input">${I('lock',18)}<input id="lg-pass" type="password" placeholder="••••••••"><button type="button" data-a="toggle-pass" style="color:var(--faint)">${I('eye',18)}</button></div></div>
         <div class="err" id="lg-err">${t('login.err')}</div>
         <button class="btn btn-primary" type="submit">${t('login.submit')}</button>
@@ -852,7 +1074,7 @@ SCREENS.login = () => {
       <button class="master-card" data-a="fill-master">
         <div class="mk">${I('zap',18)}</div>
         <div class="grow"><div style="font-size:10.5px;font-weight:800;color:var(--primary);letter-spacing:.07em">${t('login.master')}</div>
-        <div class="t-title truncate" style="font-size:13px">${MASTER.email}</div><div class="t-sub" style="margin:0;font-size:11px">${t('login.masterHint')}</div></div>
+        <div class="t-title truncate" style="font-size:13px">${DEMO_ACCOUNTS[r].identifier}</div><div class="t-sub" style="margin:0;font-size:11px">${t('login.masterHint')}</div></div>
         ${I('chevR',18)}
       </button>
       <p class="t-sub" style="text-align:center;margin-top:14px">${t('login.noAccount')} <b style="color:var(--primary)">${t('login.register')}</b></p>
@@ -912,7 +1134,7 @@ SCREENS.service = ({id}) => {
   // Mirrors the server: PlatformConfig.commissionPercent is taken out of the
   // service charge, it is not added on top of it. The customer pays the
   // charge; the split is shown so they can see where it goes.
-  const COMMISSION_PCT=15, commission=Math.round(s.price*COMMISSION_PCT/100), workerGets=s.price-commission, total=s.price;
+  const commission=Math.round(s.price*COMMISSION_PCT/100), workerGets=s.price-commission, total=s.price;
   return { top:titleBar(s.name,t('book.sub')), cta:`<div class="row" style="gap:14px"><div><div class="t-sub" style="margin:0">${t('total')}</div><div style="font-size:20px;font-weight:900">${inr(total)}</div></div><button class="btn btn-primary" style="flex:1" data-a="confirm" data-v="${id}">${t('book.confirm')}</button></div>`,
   body:`<div class="page">
     <div class="card svc-hero"><div class="svc-ico" style="background:${s.color}1f;color:${s.color};width:56px;height:56px;border-radius:16px">${I(s.icon,28)}</div>
@@ -1002,10 +1224,10 @@ SCREENS['worker:home'] = () => { const next=S.jobs.find(j=>j.status!=='done'); c
       <button class="toggle ${S.online?'on':''}" style="${S.online?'background:rgba(255,255,255,.3)':''}" data-a="online" aria-label="${t('a11y.toggle')}"></button></div>
     <div class="kpis"><div class="card kpi"><span>${t('day.today')}</span><b style="color:var(--success)">${inr(S.earningsToday)}</b></div><div class="card kpi"><span>${t('nav.jobs')}</span><b>${S.jobsToday}</b></div><div class="card kpi"><span>${t('kpi.rating')}</span><b>4.9★</b></div></div>
     ${S.online&&r?`<div class="card request"><div class="row" style="position:relative">
-        <div class="grow"><span class="badge b-blue">${I('zap',11)} ${t('req.new')}</span><div class="t-title" style="font-size:16px;margin-top:8px">${t('job.'+r.title)}</div>
-        <div class="t-sub">${r.customer} • ${r.area} • ${r.dist}</div></div>
-        <div class="ring"><svg width="48" height="48"><circle cx="24" cy="24" r="20" fill="none" stroke="var(--primary-soft)" stroke-width="4"/><circle class="fg" cx="24" cy="24" r="20" fill="none" stroke="var(--primary)" stroke-width="4" stroke-linecap="round" style="animation-delay:-${Math.min(29,Math.floor((Date.now()-S.reqStart)/1000))}s"/></svg><b id="req-count">30</b></div></div>
-      <div class="row" style="justify-content:space-between;margin:14px 0;position:relative"><span class="t-sub" style="margin:0">${t('req.earn')}</span><b style="font-size:20px;color:var(--success)">${inr(r.pay)}</b></div>
+        <div class="grow"><span class="badge b-blue">${I('zap',11)} ${t('req.new')}</span><div class="t-title" style="font-size:16px;margin-top:8px">${r.live ? r.title : t('job.'+r.title)}</div>
+        <div class="t-sub">${[r.customer, r.area, r.dist].filter(Boolean).join(' • ')}</div></div>
+        <div class="ring"><svg width="48" height="48"><circle cx="24" cy="24" r="20" fill="none" stroke="var(--primary-soft)" stroke-width="4"/><circle class="fg" cx="24" cy="24" r="20" fill="none" stroke="var(--primary)" stroke-width="4" stroke-linecap="round" style="animation-delay:-${Math.min((S.reqWindow||45)-1,Math.floor((Date.now()-S.reqStart)/1000))}s"/></svg><b id="req-count">${S.reqWindow||45}</b></div></div>
+      <div class="row" style="justify-content:space-between;margin:14px 0;position:relative"><span class="t-sub" style="margin:0">${t('req.earn')}</span><b style="font-size:20px;color:var(--success)">${r.pay==null?'—':inr(r.pay)}</b></div>
       <div class="row" style="gap:10px;position:relative"><button class="btn btn-sm btn-danger-soft" style="flex:1" data-a="decline">${t('req.decline')}</button><button class="btn btn-sm btn-primary" style="flex:2" data-a="accept">${t('req.accept')}</button></div></div>`
     : S.online?`<div class="card list-item" style="margin-top:16px"><div class="s-ico" style="background:var(--primary-soft);color:var(--primary)">${I('search',18)}</div><div class="grow"><div class="t-title">${t('req.looking')}</div><div class="t-sub">${t('req.lookingSub')}</div></div></div>`:''}
     ${next?`<div class="sec-head"><h3>${t('worker.next')}</h3><button data-a="tab" data-v="jobs">${t('worker.allJobs')}</button></div>
@@ -1031,7 +1253,7 @@ SCREENS['worker:earnings'] = () => { const max=Math.max(...S.week), tot=S.week.r
   // Mirrors GET /workers/me/bookings/:id/earnings: the customer's payment,
   // the commission taken out of it, and what the worker keeps. Derived from
   // the stored payout so the three figures reconcile.
-  const COMMISSION_PCT=15, lastJob=S.jobs.filter(j=>j.status==='done')[0];
+  const lastJob=S.jobs.filter(j=>j.status==='done')[0];
   const lastPaid=lastJob?Math.round(lastJob.pay/(1-COMMISSION_PCT/100)):0;
   const lastCut=lastJob?lastPaid-lastJob.pay:0;
   return { top:titleBar(t('nav.earnings'),t('earn.sub'),false), nav:true, body:`<div class="page">
@@ -1086,6 +1308,63 @@ SCREENS['admin:dispatch'] = () => { const f=S.dispatchFilter; const tone={enrout
     <div class="t-sub row" style="gap:6px;margin-top:10px">${I('pin',13)} ${d.area}</div></div>`}).join('')}</div>
   </div>` }; };
 
+// ---------- LIVE DISPATCH (customer) ----------
+// Every line on this screen comes from the server: the phase is whatever the
+// dispatch engine last emitted, and the worker block appears only once a
+// cooperative member has actually accepted.
+const DISPATCH_PHASES = [
+  { key:'REQUESTED',        label:'dispatch.p.requested' },
+  { key:'DISPATCHING_TOP3', label:'dispatch.p.top3' },
+  { key:'DISPATCHING_POOL', label:'dispatch.p.pool' },
+  { key:'ASSIGNED',         label:'dispatch.p.assigned' }
+];
+
+SCREENS.dispatch = ({id}) => {
+  const b = S.activeBooking && S.activeBooking.id===id ? S.activeBooking : null;
+  if(!b) return { top:titleBar(t('dispatch.title'),'',true), body:`<div class="page"><div class="empty"><div class="t-title">${t('dispatch.gone')}</div></div></div>` };
+
+  const phase = b.phase || 'REQUESTED';
+  const done = phase==='ASSIGNED'||phase==='CONFIRMED'||phase==='IN_PROGRESS'||phase==='COMPLETED';
+  const exhausted = phase==='EXHAUSTED';
+  const idx = Math.max(0, DISPATCH_PHASES.findIndex(p=>p.key===phase));
+  const w = b.detail && b.detail.worker;
+  const elapsed = Math.floor((Date.now()-b.startedAt)/1000);
+
+  return { top:titleBar(t('dispatch.title'), b.id.slice(0,8), true), body:`<div class="page">
+    <div class="card" style="padding:18px 16px;text-align:center">
+      ${exhausted
+        ? `<div class="t-title" style="font-size:16px">${t('dispatch.none')}</div><p class="t-sub" style="margin-top:8px">${t('dispatch.noneBody')}</p>`
+        : done
+          ? `<div class="check-circle" style="width:56px;height:56px;margin:0 auto"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+             <div class="t-title" style="font-size:16px;margin-top:12px">${t('dispatch.assigned')}</div>`
+          : `<div class="ring" style="margin:0 auto"><svg width="48" height="48"><circle cx="24" cy="24" r="20" fill="none" stroke="var(--primary-soft)" stroke-width="4"/><circle class="fg" cx="24" cy="24" r="20" fill="none" stroke="var(--primary)" stroke-width="4" stroke-linecap="round"/></svg></div>
+             <div class="t-title" style="font-size:16px;margin-top:12px">${t('dispatch.searching')}</div>
+             <p class="t-sub" style="margin-top:6px">${t('dispatch.elapsed',{n:elapsed})}</p>`}
+      <div class="row" style="justify-content:center;gap:6px;margin-top:10px">
+        <span class="badge ${S.socketLive?'b-green':'b-amber'}">${S.socketLive?t('dispatch.live'):t('dispatch.connecting')}</span>
+      </div>
+    </div>
+
+    <div class="sec-head"><h3>${t('dispatch.progress')}</h3></div>
+    <div class="card" style="padding:14px 16px">
+      ${DISPATCH_PHASES.map((p,i)=>`<div class="row" style="gap:10px;padding:7px 0">
+        <div style="width:9px;height:9px;border-radius:50%;background:${exhausted?'var(--faint)':(i<=idx?'var(--primary)':'var(--border)')}"></div>
+        <div class="grow t-title" style="font-size:13px;font-weight:${i===idx&&!done?'800':'600'}">${t(p.label)}</div>
+        ${i<idx||done?`<span class="badge b-green">${t('dispatch.doneTag')}</span>`:(i===idx&&!exhausted?`<span class="badge b-blue">${t('dispatch.now')}</span>`:'')}
+      </div>`).join('')}
+    </div>
+
+    ${w?`<div class="sec-head"><h3>${t('dispatch.worker')}</h3></div>
+    <div class="card list-item">
+      ${avatar((w.name||'?').split(' ').map(x=>x[0]).join('').slice(0,2), '#16a34a', 44)}
+      <div class="grow"><div class="t-title">${w.name||'—'}</div>
+      <div class="t-sub">${[w.cooperative, w.rating?`${Number(w.rating).toFixed(2)}★ (${w.ratingCount||0})`:null, w.distanceKm!=null?`${Number(w.distanceKm).toFixed(1)} km`:null].filter(Boolean).join(' • ')}</div></div>
+    </div>`:''}
+
+    <p class="t-sub" style="text-align:center;margin-top:14px;font-size:11.5px">${t('dispatch.note')}</p>
+  </div>` };
+};
+
 // ---------- PROFILE (shared) ----------
 const profileScreen = () => { const p=PERSONAS[S.role];
   return { top:titleBar(t('nav.profile'),'',false), nav:true, body:`<div class="page">
@@ -1132,18 +1411,17 @@ function toast(msg){ const t=document.getElementById('toast'); if(!t) return; do
 function push(name, params){ S.stack.push({name, params}); S.anim='fwd'; render(); }
 function back(){ S.stack.pop(); S.anim='back'; render(); }
 
-// Worker dispatch request simulation
-function scheduleRequest(){
-  if(!S.online || S.request || S.reqTimer) return;
-  S.reqTimer = setTimeout(()=>{
-    S.reqTimer=null; if(!S.online || S.request || S.role!=='worker') return;
-    S.request = REQUESTS[S.reqIdx++ % REQUESTS.length]; S.reqStart = Date.now();
-    if(S.tab==='home' && !S.stack.length){ render(true); toast(t('toast.newReq')); }
-  }, 3500);
-}
+// Offers now arrive over the dispatch socket, so nothing is scheduled here.
+// Kept as a no-op because the render loop calls it.
+function scheduleRequest(){ /* offers come from dispatch:offer */ }
+
+// The countdown runs to the window the server sent with the offer (45s for a
+// top-three offer, 120s for the wider pool) rather than a fixed number. When
+// it runs out the server has already moved on to the next candidate.
 setInterval(()=>{
   if(!S.request) return;
-  const left = 30 - Math.floor((Date.now()-S.reqStart)/1000);
+  const window_ = S.reqWindow || 45;
+  const left = window_ - Math.floor((Date.now()-S.reqStart)/1000);
   const el = document.getElementById('req-count'); if(el) el.textContent = Math.max(0,left);
   if(left<=0){ S.request=null; if(S.role==='worker'&&S.tab==='home'&&!S.stack.length){ render(true); toast(t('toast.expired')); } }
 }, 1000);
@@ -1154,7 +1432,8 @@ setInterval(()=>{ const t=new Date(); document.querySelectorAll('.statusbar > sp
 const A = {
   'login-role': v => { S.loginRole=v; S.anim=''; render(true); },
   'fill-master': () => { const u=document.getElementById('lg-user'), p=document.getElementById('lg-pass');
-    typeInto(u, MASTER.email, 22, ()=>typeInto(p, MASTER.password, 40)); },
+    const acct = DEMO_ACCOUNTS[S.loginRole];
+    typeInto(u, acct.identifier, 22, ()=>typeInto(p, acct.password, 40)); },
   'toggle-pass': () => { const p=document.getElementById('lg-pass'); p.type = p.type==='password'?'text':'password'; },
   tab: v => { if(S.tab===v && !S.stack.length){ const c=app.querySelector('.content'); if(c) c.scrollTo({top:0,behavior:'smooth'}); return; } S.tab=v; S.stack=[]; S.anim='fade'; render(); },
   push: v => push(v),
@@ -1164,11 +1443,31 @@ const A = {
   service: v => { S.draft={date:0, slot:1}; push('service',{id:v}); },
   date: v => { S.draft.date=+v; if(S.draft.date===0&&S.draft.slot===0) S.draft.slot=1; render(true); },
   slot: v => { S.draft.slot=+v; render(true); },
-  confirm: v => {
-    const s=svc(v), id='WS-'+(24818+S.bookings.length);
-    S.bookings.unshift({id, service:v, date:DATES()[S.draft.date].value, slot:SLOTS[S.draft.slot], step:1, price:s.price+29});
-    S.notifs.unshift({icon:'check', key:'booked', vars:{svc:v, name:WORKERS[v].name}, time:[0], unread:true, tone:'b-green'});
-    S.stack=[{name:'success', params:{id}}]; S.anim='fade'; render();
+  // Creates a real booking. The server geocodes the address to a PostGIS
+  // point, scores eligible cooperative members and starts the top-three
+  // offer sequence; from here the screen is driven by dispatch events, not
+  // by a timer in this file.
+  confirm: async v => {
+    if(S.bookingBusy) return;
+    S.bookingBusy = true; render(true);
+    try{
+      const s = svc(v);
+      const res = await apiPost('/bookings/request', {
+        serviceCategoryId: serverServiceId(v),
+        location: DEMO_LOCATION,
+        description: `${s.name} requested from the Worksetu mobile app.`,
+        scheduledAt: null,
+        urgency: S.draft.date===0 ? 'URGENT' : 'NORMAL'
+      });
+      const id = res.bookingId || res.id;
+      S.activeBooking = { id, service:v, phase:'REQUESTED', detail:null, startedAt:Date.now() };
+      S.stack=[{name:'dispatch', params:{id}}]; S.anim='fade';
+      render();
+    }catch(ex){
+      toast(ex.message || 'Could not create the booking');
+    }finally{
+      S.bookingBusy = false; render(true);
+    }
   },
   'track-replace': v => { S.tab='bookings'; S.stack=[{name:'track',params:{id:v}}]; S.anim='fwd'; render(); },
   track: v => push('track',{id:v}),
@@ -1176,15 +1475,46 @@ const A = {
   bfilter: v => { S.bookingFilter=v; render(true); },
   'read-all': () => { S.notifs.forEach(n=>n.unread=false); render(true); toast(t('toast.readAll')); },
   toast: v => toast(v),
-  online: () => { S.online=!S.online; if(!S.online){ S.request=null; clearTimeout(S.reqTimer); S.reqTimer=null; } render(true); toast(t(S.online?'toast.online':'toast.offline')); },
-  accept: () => { const r=S.request; S.request=null; S.jobs.unshift({id:'J-'+(5522+S.reqIdx), title:r.title, customer:r.customer, area:r.area, slot:{day:'today', in:30}, pay:r.pay, status:'upcoming'}); render(true); toast(t('toast.accepted')); },
-  decline: () => { S.request=null; render(true); toast(t('toast.declined')); },
+  // Availability is a server-side eligibility condition, not a local toggle:
+  // only an AVAILABLE member enters the candidate pool.
+  online: async () => {
+    S.online=!S.online;
+    if(!S.online){ S.request=null; clearTimeout(S.reqTimer); S.reqTimer=null; stopLocationPing(); } else { startLocationPing(); }
+    render(true);
+    toast(t(S.online?'toast.online':'toast.offline'));
+    try{
+      const res = await fetch(`${API_BASE}/workers/me/availability`, {
+        method:'PATCH',
+        headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${S.token}`, 'Idempotency-Key': crypto.randomUUID() },
+        credentials:'include',
+        body: JSON.stringify({ status: S.online ? 'AVAILABLE' : 'OFF_DUTY' })
+      });
+      if(!res.ok) throw new Error(`availability ${res.status}`);
+    }catch(e){ console.warn('[availability]', e.message); }
+  },
+  // A live offer is answered on the server, which takes the Redis lock so
+  // two workers cannot claim the same booking. Anything without a
+  // dispatchLogId is the unwired sample offer and stays local.
+  accept: async () => {
+    const r=S.request; if(!r) return;
+    if(!r.live || !r.dispatchLogId){ S.request=null; render(true); toast(t('toast.accepted')); return; }
+    try{
+      await apiPost(`/dispatch/${r.dispatchLogId}/respond`, { response:'ACCEPT' });
+      S.request=null; render(true); toast(t('toast.accepted'));
+    }catch(ex){ S.request=null; render(true); toast(ex.message || t('dispatch.taken')); }
+  },
+  decline: async () => {
+    const r=S.request; if(!r) return;
+    if(r.live && r.dispatchLogId){ try{ await apiPost(`/dispatch/${r.dispatchLogId}/respond`, { response:'DECLINE' }); }catch(e){} }
+    S.request=null; render(true); toast(t('toast.declined'));
+  },
   'job-start': v => { S.jobs.find(j=>j.id===v).status='active'; render(true); toast(t('toast.started')); },
   'job-done': v => { const j=S.jobs.find(x=>x.id===v); j.status='done'; S.earningsToday+=j.pay; S.jobsToday++; S.week[6]+=j.pay; render(true); toast(t('toast.credited',{amt:inr(j.pay)})); },
   approve: v => { const m=S.members[+v]; m.status='verified'; render(true); toast(t('toast.approved',{name:m.name})); },
   dfilter: v => { S.dispatchFilter=v; render(true); },
   role: v => { if(S.role===v) return; S.role=v; S.tab='home'; S.stack=[]; S.request=null; clearTimeout(S.reqTimer); S.reqTimer=null; S.anim='fade'; render(); toast(t('toast.switched',{role:PERSONAS[v].label})); },
-  logout: () => { S.user=null; S.stack=[]; S.tab='home'; S.request=null; S.anim='fade'; render(); }
+  logout: () => { disconnectSocket(); stopLocationPing(); try{ fetch(`${API_BASE}/auth/logout`, {method:'POST', headers:{Authorization:`Bearer ${S.token}`}, credentials:'include'}); }catch(e){}
+    S.user=null; S.token=null; S.activeBooking=null; S.stack=[]; S.tab='home'; S.request=null; S.anim='fade'; render(); }
 };
 
 function typeInto(el, text, speed, done){ el.value=''; el.focus(); let i=0; const t=setInterval(()=>{ el.value=text.slice(0,++i); if(i>=text.length){ clearInterval(t); done&&done(); } }, speed); }
@@ -1193,15 +1523,50 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-a]'); if(!el) return;
   e.preventDefault(); const fn = A[el.dataset.a]; if(fn) fn(el.dataset.v, el);
 });
-document.addEventListener('submit', e => {
+const SPINNER = '<span style="display:inline-block;width:18px;height:18px;border:2.5px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite"></span>';
+
+// Signs in against the live API. The password is checked by the server
+// (bcrypt), the access token is kept in memory only, and the refresh token
+// arrives as an httpOnly cookie we never read from script.
+document.addEventListener('submit', async e => {
   if(e.target.id!=='login-form') return; e.preventDefault();
-  const u=document.getElementById('lg-user').value.trim().toLowerCase(), p=document.getElementById('lg-pass').value;
-  if((u===MASTER.email || u===MASTER.phone) && p===MASTER.password){
-    const btn=e.target.querySelector('button[type=submit]'); btn.innerHTML='<span style="display:inline-block;width:18px;height:18px;border:2.5px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite"></span>';
-    setTimeout(()=>{ S.user=MASTER; S.role=S.loginRole; S.tab='home'; S.stack=[]; S.anim='fade'; render(); toast(t('toast.signedIn',{name:PERSONAS[S.role].name})); }, 700);
-  } else {
-    const card=document.querySelector('.login-card'); card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
-    document.getElementById('lg-err').classList.add('show');
+  const identifier = document.getElementById('lg-user').value.trim();
+  const password = document.getElementById('lg-pass').value;
+  const role = S.loginRole;
+  const btn = e.target.querySelector('button[type=submit]');
+  const err = document.getElementById('lg-err');
+
+  err.classList.remove('show');
+  btn.disabled = true;
+  btn.innerHTML = SPINNER;
+
+  // The API sleeps on the free tier, so the first sign-in of the day can take
+  // the better part of a minute. Say so instead of looking frozen.
+  const slow = setTimeout(()=>{ btn.innerHTML = SPINNER + ' <span style="margin-left:8px;font-size:12px">' + t('login.waking') + '</span>'; }, 2500);
+
+  try {
+    const { token } = await apiLogin(role, identifier, password);
+    const me = await apiMe(token);
+    clearTimeout(slow);
+
+    S.token = token;
+    S.user = { id: me.userId, name: me.fullName, email: me.email, phone: me.phone,
+               address: me.customerProfile?.defaultAddress || null };
+    S.role = (me.role || role).toLowerCase();
+    S.tab='home'; S.stack=[]; S.anim='fade';
+    connectSocket();
+    if(S.role==='worker'){ startLocationPing(); loadIncomingOffer(); }
+    render();
+    toast(t('toast.signedIn',{ name: me.fullName }));
+  } catch (ex) {
+    clearTimeout(slow);
+    const card=document.querySelector('.login-card');
+    card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
+    err.textContent = ex.message || t('login.err');
+    err.classList.add('show');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = t('login.submit');
   }
 });
 document.addEventListener('input', e => {
@@ -1271,6 +1636,7 @@ if(new URLSearchParams(location.search).get('statusbar')==='0') document.body.cl
 load();
 render();
 if(!S.splashDone) setTimeout(()=>{ const sp=app.querySelector('.splash'); if(sp) sp.style.opacity='0'; setTimeout(()=>{ S.splashDone=true; render(); }, 420); }, 1700);
+resumeSession();
 </script>
 </body>
 </html>
