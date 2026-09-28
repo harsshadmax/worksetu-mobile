@@ -411,7 +411,11 @@ const DEMO_LOCATION = { address:'14, 2nd Main Rd, Gandhi Nagar, Adyar, Chennai 6
 function connectSocket(){
   if(S.socket || typeof io === 'undefined' || !S.token) return;
   const url = window.WORKSETU_API_BASE || undefined; // same origin via the preview proxy
-  const sock = io(url, { auth:{ token:S.token }, transports:['websocket','polling'], withCredentials:true });
+  // Polling first, then upgrade. The hosting proxy in front of this app
+  // forwards HTTP but not WebSocket upgrades, so demanding a socket outright
+  // leaves the client retrying a connection it can never make; starting on
+  // polling connects either way, and upgrades wherever the upgrade survives.
+  const sock = io(url, { auth:{ token:S.token }, transports:['polling','websocket'], withCredentials:true });
   S.socket = sock;
 
   sock.on('connect', ()=>{ S.socketLive=true; render(true); });
