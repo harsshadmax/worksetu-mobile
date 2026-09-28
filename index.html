@@ -55,9 +55,12 @@ body.no-sb .statusbar{display:none}
 .icon-btn{width:40px;height:40px;border-radius:12px;border:1px solid var(--border);background:var(--surface-2);display:grid;place-items:center;color:var(--muted);position:relative;transition:transform .15s}
 .icon-btn:active{transform:scale(.92)}
 .dot{position:absolute;top:8px;right:9px;width:8px;height:8px;border-radius:50%;background:var(--danger);border:2px solid var(--surface-2)}
-.logo-img{display:inline-flex;align-items:center;background:#fff;border-radius:10px;padding:4px 8px;border:1px solid #e2e8f0;flex-shrink:0}
-.logo-img img{height:100%;width:auto;display:block}
-.splash .logo-img{border:0;border-radius:18px;padding:12px 16px;box-shadow:0 12px 30px rgba(0,0,0,.25);animation:pop .6s cubic-bezier(.2,1.4,.4,1)}
+.logo-img{display:inline-flex;align-items:center;gap:8px;flex-shrink:0}
+.logo-img svg{display:block;flex:none}
+.splash .logo-img{animation:pop .6s cubic-bezier(.2,1.4,.4,1)}
+.splash .logo-img svg rect{fill:#fff}
+.splash .logo-img svg circle:first-of-type,.splash .logo-img svg path{stroke:var(--primary)}
+.splash .logo-img svg circle:nth-of-type(2){stroke:#60a5fa}
 .brand{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
 .logo{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#2563eb,#1e40af);display:grid;place-items:center;color:#fff;font-weight:900;font-size:14px;letter-spacing:-.04em;box-shadow:0 4px 12px rgba(37,99,235,.3);flex-shrink:0}
 .brand-name{font-weight:900;font-size:17px;letter-spacing:.01em;display:flex;align-items:center;gap:6px}
@@ -873,12 +876,14 @@ const ICONS = {
   nav:'<path d="m3 11 19-9-9 19-2-8z"/>'
 };
 const I = (n, s=20, w=2) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]||''}</svg>`;
-const LOGO = (h) => `<span class="logo-img" style="height:${h}px;display:inline-flex;align-items:center;gap:8px">
-  <svg width="${h}" height="${h}" viewBox="0 0 64 64" role="img" aria-label="Worksetu" style="flex:none">
-    <rect width="64" height="64" rx="14" fill="var(--primary)"/>
-    <path d="M24 26a9 9 0 0 1 12.7 0l3.5 3.5a2.6 2.6 0 0 1-3.7 3.7L33 29.7a3.8 3.8 0 0 0-5.4 5.4l1.5 1.5a2.6 2.6 0 0 1-3.7 3.7l-1.5-1.5A9 9 0 0 1 24 26Z" fill="#fff"/>
-    <path d="M40 38a9 9 0 0 1-12.7 0l-3.5-3.5a2.6 2.6 0 0 1 3.7-3.7l3.5 3.5a3.8 3.8 0 0 0 5.4-5.4l-1.5-1.5a2.6 2.6 0 0 1 3.7-3.7l1.5 1.5A9 9 0 0 1 40 38Z" fill="#93c5fd"/>
-  </svg><span style="font-weight:900;letter-spacing:-.02em;font-size:${Math.round(h*0.52)}px;color:var(--text)">WORKSETU</span></span>`;
+const LOGO = (h) => `<span class="logo-img" style="height:${h}px">
+  <svg width="${h}" height="${h}" viewBox="0 0 64 64" role="img" aria-label="Worksetu">
+    <rect width="64" height="64" rx="15" fill="var(--primary)"/>
+    <circle cx="26" cy="32" r="10.5" fill="none" stroke="#fff" stroke-width="6"/>
+    <circle cx="38" cy="32" r="10.5" fill="none" stroke="#bfdbfe" stroke-width="6"/>
+    <path d="M32 22.3a10.5 10.5 0 0 1 0 19.4" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
+  </svg>
+  <span style="font-weight:900;letter-spacing:-.02em;font-size:${Math.round(h*0.54)}px;color:currentColor">WORKSETU</span></span>`;
 const inr = n => '₹' + n.toLocaleString('en-IN');
 
 // ---- Demo data ----
