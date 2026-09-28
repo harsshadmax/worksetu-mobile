@@ -1,25 +1,20 @@
-# Keeps both backends from going to sleep.
+# Keeps the Supabase project from pausing.
 #
-# Two different problems, so two steps:
-#
-#   Render  spins the API container down after ~15 minutes idle and takes the
-#           better part of a minute to come back. Frequent pings keep it warm
-#           during the day, which is the difference between a demo that works
-#           and one that looks broken.
-#
-#   Supabase pauses a free project after 7 days with no activity. That is what
-#           had already happened to this project before it was restored. A
-#           single query a day is enough to reset that clock -- frequency does
-#           not help here, only recency.
+# A free Supabase project pauses after 7 days with no activity -- which is
+# exactly what had happened to this one before it was restored. A single
+# query resets that clock, so this is about recency, not frequency: once a
+# day is enough, and hammering it would not help.
 #
 # GitHub skips scheduled workflows on repositories with no activity for 60
-# days, and cron here is best-effort rather than exact. Treat this as "usually
-# warm", not a guarantee, and still open the site a few minutes before a demo.
-name: keep the backends awake
+# days, and cron here is best-effort rather than exact. Treat it as a
+# safeguard against the 7-day pause, not a guarantee of uptime.
+name: keep the database awake
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    # 06:40 UTC daily. An odd minute on purpose: the top of the hour is when
+    # GitHub's scheduler is busiest and runs are most likely to be delayed.
+    - cron: "40 6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -32,20 +27,9 @@ concurrency:
 jobs:
   ping:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 5
     steps:
-      - name: Wake the Render API
-        run: |
-          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 120 \
-            https://worksetu-api.onrender.com/health)
-          echo "render /health -> $code"
-          # A cold start can outlast the request that triggered it; the point
-          # is to have asked, so a slow first answer is not a failure.
-          if [ "$code" != "200" ]; then
-            echo "::warning::render health returned $code (likely still waking)"
-          fi
-
-      - name: Keep the Supabase project active
+      - name: Query Supabase
         env:
           SUPABASE_URL: https://mhiyjrmmrrxqantcxktp.supabase.co
           # The publishable key is safe in the repository: it is the same key
@@ -59,11 +43,11 @@ jobs:
           code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 \
             -H "apikey: $SUPABASE_KEY" \
             -H "Authorization: Bearer $SUPABASE_KEY" \
-            -H "Prefer: count=exact" \
             -I "$SUPABASE_URL/rest/v1/bookings?select=id&limit=1")
           echo "supabase /rest/v1/bookings -> $code"
-          # 200 and 206 both mean the query reached Postgres. 401 would mean
-          # the key is wrong, which is worth failing over rather than ignoring.
+          # 200 and 206 both mean the query reached Postgres. A 401 means the
+          # key is wrong, which should fail loudly rather than pass quietly
+          # while the project drifts towards being paused.
           case "$code" in
             200|206) echo "supabase reached" ;;
             401|403) echo "::error::supabase rejected the key ($code)"; exit 1 ;;

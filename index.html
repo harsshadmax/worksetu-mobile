@@ -322,7 +322,6 @@ html[data-theme="dark"] .toast{background:#e5e9f2;color:#0f172a}
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" type="image/svg+xml" href="/icon.svg">
 <meta name="theme-color" content="#1d4ed8">
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js" crossorigin="anonymous"></script>
 <style>
 /* Keyboard focus has to be visible on every interactive element; :focus-visible
@@ -419,8 +418,12 @@ async function apiPost(path, body){
 // works today stops working. ?backend=supabase selects the Supabase loop
 // instead: its own auth, its own bookings table, realtime rather than
 // Socket.IO. Neither knows about the other.
-const BACKEND = (new URLSearchParams(location.search).get('backend') === 'supabase') ? 'supabase' : 'api';
-const IS_SB = BACKEND === 'supabase';
+// This build is the standalone Supabase site: Supabase is the only backend
+// it has, so there is no Express API to fall back to and no query parameter
+// to remember. The API code below stays because the screens share it, but
+// nothing here reaches for it -- main carries the build that does.
+const BACKEND = 'supabase';
+const IS_SB = true;
 
 const SB_URL = 'https://mhiyjrmmrrxqantcxktp.supabase.co';
 const SB_KEY = 'sb_publishable_q2boPUlyX8jSEUAkjSLt8A_f9FF-XbE';
