@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2563eb">
 <title>Worksetu</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -319,7 +319,25 @@ html[data-theme="dark"] .toast{background:#e5e9f2;color:#0f172a}
 }
 .sandbox-tag{position:absolute;left:50%;transform:translateX(-50%);bottom:4px;font-size:9px;font-weight:700;color:var(--faint);letter-spacing:.08em;pointer-events:none;z-index:6;display:none}
 </style>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/svg+xml" href="/icon.svg">
+<meta name="theme-color" content="#1d4ed8">
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js" crossorigin="anonymous"></script>
+<style>
+/* Keyboard focus has to be visible on every interactive element; :focus-visible
+   keeps it off mouse and touch interactions. */
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible, [tabindex]:focus-visible, .s-item:focus-visible,
+.role-opt:focus-visible, .seg button:focus-visible, .icon-btn:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 10px;
+}
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; }
+}
+</style>
 </head>
 <body>
 <div id="app"></div>
@@ -394,6 +412,234 @@ async function apiPost(path, body){
   if(!res.ok) throw new Error(data?.error?.message || `Request failed (${res.status})`);
   return data;
 }
+
+// ---------------------------------------------------------------- backend
+// Two backends live in this file at once, on purpose. The default is the
+// Express/Prisma API that production already runs against, so nothing that
+// works today stops working. ?backend=supabase selects the Supabase loop
+// instead: its own auth, its own bookings table, realtime rather than
+// Socket.IO. Neither knows about the other.
+const BACKEND = (new URLSearchParams(location.search).get('backend') === 'supabase') ? 'supabase' : 'api';
+const IS_SB = BACKEND === 'supabase';
+
+const SB_URL = 'https://mhiyjrmmrrxqantcxktp.supabase.co';
+const SB_KEY = 'sb_publishable_q2boPUlyX8jSEUAkjSLt8A_f9FF-XbE';
+
+// Created lazily: a page on the API backend should not open a session with a
+// database it never talks to.
+let sb = null;
+function sbClient(){
+  if(!IS_SB) return null;
+  if(sb) return sb;
+  if(typeof supabase === 'undefined'){ console.warn('[sb] library not loaded'); return null; }
+  sb = supabase.createClient(SB_URL, SB_KEY, {
+    auth: { persistSession:true, autoRefreshToken:true, detectSessionInUrl:false }
+  });
+  return sb;
+}
+
+// bookings.status -> the phase names the tracking screen already speaks.
+const SB_STATUS_TO_PHASE = {
+  pending:'DISPATCHING_TOP3', accepted:'ASSIGNED', started:'IN_PROGRESS',
+  completed:'COMPLETED', cancelled:'CANCELLED'
+};
+
+// Reads the signed-in user's profile row. RLS means this can only ever
+// return the caller's own row, so there is nothing to filter client-side.
+async function sbLoadProfile(userId){
+  const c = sbClient(); if(!c) return null;
+  const { data, error } = await c.from('profiles').select('id, role, name, phone, locality').eq('id', userId).maybeSingle();
+  if(error){ console.warn('[sb] profile', error.message); return null; }
+  return data;
+}
+
+async function sbAdoptSession(session){
+  const c = sbClient(); if(!c || !session) return false;
+  const profile = await sbLoadProfile(session.user.id);
+  if(!profile) return false;
+  S.token = session.access_token;
+  S.sbUserId = session.user.id;
+  S.user = { id:profile.id, name:profile.name || session.user.email, email:session.user.email,
+             phone:profile.phone, address:profile.locality };
+  S.role = profile.role;
+  return true;
+}
+
+// ---- auth ----
+async function sbSignIn(email, password){
+  const c = sbClient(); if(!c) throw new Error('Supabase client unavailable');
+  const { data, error } = await c.auth.signInWithPassword({ email, password });
+  if(error) throw new Error(error.message);
+  if(!(await sbAdoptSession(data.session))) throw new Error('Signed in, but no profile row was found');
+}
+
+// Registration goes through an edge function rather than the client's own
+// signUp. This project has "Confirm email" switched on and the built-in SMTP
+// allows two messages an hour, so a direct signUp dies at the mail step with
+// over_email_send_rate_limit and never creates an account at all. The
+// function creates the user with the service-role key and marks the address
+// confirmed, so no mail is involved. Everything after that -- the sign-in,
+// the session, the profile row, RLS -- is the ordinary path.
+async function sbSignUp(role, { email, password, name, phone, locality }){
+  const c = sbClient(); if(!c) throw new Error('Supabase client unavailable');
+
+  const res = await fetch(`${SB_URL}/functions/v1/signup`, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', apikey: SB_KEY, Authorization:`Bearer ${SB_KEY}` },
+    body: JSON.stringify({ email, password, role, name, phone, locality })
+  });
+  const out = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(out.error || `Sign-up failed (${res.status})`);
+
+  // Sign in with what was just created, so the session is an ordinary one.
+  const { data, error } = await c.auth.signInWithPassword({ email, password });
+  if(error) throw new Error(error.message);
+
+  // The trigger runs inside the createUser transaction; give it a moment on a
+  // cold project before reading the row back.
+  for(let i=0;i<3;i++){
+    if(await sbAdoptSession(data.session)) return;
+    await new Promise(r=>setTimeout(r,400));
+  }
+  throw new Error('Account created, but its profile row did not appear');
+}
+
+async function sbSignOut(){ const c=sbClient(); if(c) await c.auth.signOut().catch(()=>{}); }
+
+// ---- bookings ----
+async function sbCreateBooking(service, price, slot){
+  const c = sbClient(); if(!c) throw new Error('Supabase client unavailable');
+  const { data, error } = await c.from('bookings')
+    .insert({ customer_id:S.sbUserId, service, price, slot, status:'pending' })
+    .select('id, code, service, status, price, slot, created_at')
+    .single();
+  if(error) throw new Error(error.message);
+  await c.from('booking_events').insert({ booking_id:data.id, status:'pending', actor_id:S.sbUserId });
+  return data;
+}
+
+// One place that moves a booking and records who moved it, so the history is
+// never written by only some of the paths.
+async function sbAdvance(bookingId, status, extra){
+  const c = sbClient(); if(!c) throw new Error('Supabase client unavailable');
+  const { error } = await c.from('bookings').update({ status, ...(extra||{}) }).eq('id', bookingId);
+  if(error) throw new Error(error.message);
+  await c.from('booking_events').insert({ booking_id:bookingId, status, actor_id:S.sbUserId });
+}
+
+async function sbWorkerBookings(){
+  const c = sbClient(); if(!c) return [];
+  // RLS returns assigned-to-me plus the pending pool; no filter needed here.
+  const { data, error } = await c.from('bookings')
+    .select('id, code, service, status, price, slot, customer_id, worker_id, created_at')
+    .in('status', ['pending','accepted','started'])
+    .order('created_at', { ascending:false });
+  if(error){ console.warn('[sb] worker bookings', error.message); return []; }
+  return data || [];
+}
+
+async function sbRefreshWorker(){
+  if(!IS_SB || S.role!=='worker') return;
+  S.sbJobs = await sbWorkerBookings();
+  render(true);
+}
+
+async function sbRefreshCustomerBooking(){
+  const c = sbClient(); if(!c || !S.activeBooking) return;
+  const { data } = await c.from('bookings')
+    .select('id, code, service, status, price, slot, worker_id')
+    .eq('id', S.activeBooking.id).maybeSingle();
+  if(!data) return;
+  S.activeBooking.sbStatus = data.status;
+  S.activeBooking.phase = SB_STATUS_TO_PHASE[data.status] || 'REQUESTED';
+  if(data.worker_id && !(S.activeBooking.detail && S.activeBooking.detail.worker)){
+    const { data: w } = await c.from('profiles').select('name, locality').eq('id', data.worker_id).maybeSingle();
+    if(w) S.activeBooking.detail = { worker: { name:w.name, cooperative:w.locality } };
+  }
+  render(true);
+}
+
+// ---- realtime ----
+// Postgres change events on the bookings table. Both screens re-read through
+// RLS when something moves rather than trusting the payload, so a client is
+// never shown a row the policies would not have returned anyway.
+function sbSubscribe(){
+  const c = sbClient(); if(!c || S.sbChannel) return;
+  S.sbChannel = c.channel('worksetu-bookings')
+    .on('postgres_changes', { event:'*', schema:'public', table:'bookings' }, () => {
+      if(S.role==='worker') sbRefreshWorker();
+      if(S.activeBooking) sbRefreshCustomerBooking();
+    })
+    .subscribe(status => {
+      S.socketLive = (status === 'SUBSCRIBED');
+      render(true);
+    });
+}
+function sbUnsubscribe(){
+  const c = sbClient();
+  if(c && S.sbChannel){ c.removeChannel(S.sbChannel); }
+  S.sbChannel = null; S.socketLive = false;
+}
+
+// Anything that came out of the database is escaped before it goes near
+// innerHTML: these screens are built by string interpolation, and a member's
+// own name is attacker-controllable text as far as this file is concerned.
+function esc(v){
+  if(v==null) return '';
+  return String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function apiPatch(path, body){
+  const res = await fetch(`${API_BASE}${path}`, {
+    method:'PATCH',
+    headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${S.token}`, 'Idempotency-Key': crypto.randomUUID() },
+    credentials:'include',
+    body: JSON.stringify(body || {})
+  });
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data?.error?.message || `Request failed (${res.status})`);
+  return data;
+}
+
+// Registration goes to the same API as sign-in; there is no public admin
+// registration endpoint, by design, so that tab asks the registrar instead.
+async function apiRegister(role, body){
+  const res = await fetch(`${API_BASE}/auth/${role}/register`, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json' },
+    credentials:'include',
+    body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok){
+    const detail = Array.isArray(data?.error?.details) && data.error.details.length
+      ? `: ${data.error.details.map(d=>d.message||d.path).join(', ')}` : '';
+    throw new Error((data?.error?.message || `Sign-up failed (${res.status})`) + detail);
+  }
+  return data;
+}
+
+// Start and complete change the booking in the database but the API does not
+// currently push those two transitions over the socket, so an active booking
+// is re-read on a short interval. Dispatch offers are a genuine push; this is
+// not, and the screen says "updating" rather than "live" while it applies.
+function startBookingPoll(){
+  if(S.bookingPoll) return;
+  S.bookingPoll = setInterval(async () => {
+    const b = S.activeBooking;
+    if(!b || !S.token || b.phase==='EXHAUSTED'){ return; }
+    try{
+      const detail = await apiGet(`/bookings/${b.id}`);
+      const status = detail.status || detail.phase;
+      const changed = status && status !== b.phase;
+      b.detail = detail;
+      if(changed) b.phase = status;
+      if(changed) render(true);
+      if(status==='COMPLETED' || status==='SETTLED' || status==='CANCELLED') stopBookingPoll();
+    }catch(e){}
+  }, 4000);
+}
+function stopBookingPoll(){ if(S.bookingPoll){ clearInterval(S.bookingPoll); S.bookingPoll=null; } }
 
 // The phone-shaped demo catalogue and the server's service categories share
 // ids for everything except the local-only air-conditioning tile.
@@ -522,6 +768,18 @@ async function loadIncomingOffer(){
   }catch(e){}
 }
 
+// The worker's actual assignments. Rendered ahead of the sample rows on the
+// dashboard so a real job is the one you act on.
+async function refreshWorkerJobs(){
+  if(S.role!=='worker' || !S.token) return;
+  try{
+    const res = await apiGet('/workers/me/bookings');
+    const items = Array.isArray(res) ? res : (res.items || []);
+    S.workerJobs = items.filter(b => ['ASSIGNED','CONFIRMED','IN_PROGRESS'].includes(b.status));
+    render(true);
+  }catch(e){}
+}
+
 function startLocationPing(){
   if(S.pingTimer) return;
   pingLocation();
@@ -534,6 +792,19 @@ function stopLocationPing(){ if(S.pingTimer){ clearInterval(S.pingTimer); S.ping
 // a sign-out. Failure here is normal (no cookie, expired session): stay on
 // the login screen and say nothing.
 async function resumeSession(){
+  if(IS_SB){
+    // supabase-js keeps the session in storage and refreshes it itself.
+    const c = sbClient(); if(!c) return;
+    try{
+      const { data } = await c.auth.getSession();
+      if(data.session && await sbAdoptSession(data.session)){
+        sbSubscribe();
+        if(S.role==='worker') sbRefreshWorker();
+        render();
+      }
+    }catch(e){ /* stay signed out */ }
+    return;
+  }
   try{
     const res = await fetch(`${API_BASE}/auth/refresh`, { method:'POST', credentials:'include' });
     if(!res.ok) return;
@@ -544,7 +815,7 @@ async function resumeSession(){
                address: me.customerProfile?.defaultAddress || null };
     S.role = (me.role || S.role).toLowerCase();
     connectSocket();
-    if(S.role==='worker'){ startLocationPing(); loadIncomingOffer(); }
+    if(S.role==='worker'){ startLocationPing(); loadIncomingOffer(); refreshWorkerJobs(); }
     render();
   }catch(e){ /* stay signed out */ }
 }
@@ -599,7 +870,12 @@ const ICONS = {
   nav:'<path d="m3 11 19-9-9 19-2-8z"/>'
 };
 const I = (n, s=20, w=2) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]||''}</svg>`;
-const LOGO = (h) => `<span class="logo-img" style="height:${h}px"><img src="worksetu_logo.jpg" alt="Worksetu"></span>`;
+const LOGO = (h) => `<span class="logo-img" style="height:${h}px;display:inline-flex;align-items:center;gap:8px">
+  <svg width="${h}" height="${h}" viewBox="0 0 64 64" role="img" aria-label="Worksetu" style="flex:none">
+    <rect width="64" height="64" rx="14" fill="var(--primary)"/>
+    <path d="M24 26a9 9 0 0 1 12.7 0l3.5 3.5a2.6 2.6 0 0 1-3.7 3.7L33 29.7a3.8 3.8 0 0 0-5.4 5.4l1.5 1.5a2.6 2.6 0 0 1-3.7 3.7l-1.5-1.5A9 9 0 0 1 24 26Z" fill="#fff"/>
+    <path d="M40 38a9 9 0 0 1-12.7 0l-3.5-3.5a2.6 2.6 0 0 1 3.7-3.7l3.5 3.5a3.8 3.8 0 0 0 5.4-5.4l-1.5-1.5a2.6 2.6 0 0 1 3.7-3.7l1.5 1.5A9 9 0 0 1 40 38Z" fill="#93c5fd"/>
+  </svg><span style="font-weight:900;letter-spacing:-.02em;font-size:${Math.round(h*0.52)}px;color:var(--text)">WORKSETU</span></span>`;
 const inr = n => '₹' + n.toLocaleString('en-IN');
 
 // ---- Demo data ----
@@ -632,7 +908,7 @@ const dayLabel = v => Array.isArray(v) ? v[0]+' '+tl('months')[v[1]] : t('day.'+
 const SLOTS = ['9:00 AM','11:00 AM','1:00 PM','3:00 PM','5:00 PM','7:00 PM'];
 
 const S = {
-  user:null, token:null, socket:null, socketLive:false, activeBooking:null, reqWindow:45, bookingBusy:false, pingTimer:null, lastPing:0,
+  user:null, token:null, socket:null, socketLive:false, activeBooking:null, reqWindow:45, bookingBusy:false, authView:'login', coops:null, skills:null, pingTimer:null, lastPing:0, bookingPoll:null, workerJobs:null, signupBusy:false, sbUserId:null, sbJobs:null, sbChannel:null,
   role:'customer', loginRole:'customer', tab:'home', stack:[], anim:'fade',
   theme:'light', lang:'en', splashDone:false,
   draft:{date:0, slot:1},
@@ -743,6 +1019,35 @@ const STR = {
   'login.err':['Invalid credentials. Use the local master account below.','தவறான விவரங்கள். கீழே உள்ள உள்ளூர் முதன்மைக் கணக்கைப் பயன்படுத்தவும்.','अमान्य क्रेडेंशियल। नीचे दिए गए स्थानीय मास्टर खाते का उपयोग करें।','ভুল তথ্য। নিচের স্থানীয় মাস্টার অ্যাকাউন্ট ব্যবহার করুন।'],
   'login.submit':['Sign in','உள்நுழை','साइन इन करें','সাইন ইন'],
   'login.master':['⚡ COOPERATIVE DEMO MEMBER','⚡ கூட்டுறவு மாதிரி உறுப்பினர்','⚡ सहकारी डेमो सदस्य','⚡ সমবায় ডেমো সদস্য'],
+  'jobs.accept':['Accept job','வேலையை ஏற்கவும்','काम स्वीकारें','কাজ গ্রহণ করুন'],
+  'jobs.start':['Start job','வேலையைத் தொடங்கு','काम शुरू करें','কাজ শুরু করুন'],
+  'jobs.done':['Mark complete','முடிந்ததாகக் குறி','पूरा चिह्नित करें','সম্পন্ন চিহ্নিত করুন'],
+  'jobs.confirming':['Confirming…','உறுதி செய்கிறது…','पुष्टि हो रही है…','নিশ্চিত হচ্ছে…'],
+  'signup.title.customer':['Create your account','கணக்கை உருவாக்கவும்','अपना खाता बनाएँ','আপনার অ্যাকাউন্ট তৈরি করুন'],
+  'signup.title.worker':['Join the cooperative','கூட்டுறவில் இணையுங்கள்','सहकारी से जुड़ें','সমবায়ে যোগ দিন'],
+  'signup.sub.customer':['Book verified members at published rates','சரிபார்க்கப்பட்ட உறுப்பினர்கள்','सत्यापित सदस्य, तय दरें','যাচাই করা সদস্য, নির্ধারিত হার'],
+  'signup.sub.worker':['Your documents are reviewed before you receive jobs','ஆவணங்கள் சரிபார்க்கப்படும்','दस्तावेज़ जाँचे जाएँगे','নথি যাচাই হবে'],
+  'signup.fullName':['Full name','முழுப் பெயர்','पूरा नाम','পূর্ণ নাম'],
+  'signup.email':['Email','மின்னஞ்சல்','ईमेल','ইমেল'],
+  'signup.phone':['Phone number','தொலைபேசி எண்','फ़ोन नंबर','ফোন নম্বর'],
+  'signup.password':['Password','கடவுச்சொல்','पासवर्ड','পাসওয়ার্ড'],
+  'signup.address':['Address','முகவரி','पता','ঠিকানা'],
+  'signup.ph.fullName':['e.g. Lakshmi Narayanan','எ.கா. லட்சுமி நாராயணன்','जैसे लक्ष्मी नारायणन','যেমন লক্ষ্মী নারায়ণন'],
+  'signup.ph.email':['you@example.com','you@example.com','you@example.com','you@example.com'],
+  'signup.ph.phone':['10-digit mobile number','10 இலக்க எண்','10 अंकों का नंबर','১০ সংখ্যার নম্বর'],
+  'signup.ph.password':['At least 8 characters','குறைந்தது 8 எழுத்துகள்','कम से कम 8 अक्षर','অন্তত ৮ অক্ষর'],
+  'signup.ph.address':['House number, street, area','வீட்டு எண், தெரு, பகுதி','मकान नंबर, गली, क्षेत्र','বাড়ি নম্বর, রাস্তা, এলাকা'],
+  'signup.coop':['Cooperative society','கூட்டுறவு சங்கம்','सहकारी समिति','সমবায় সমিতি'],
+  'signup.skill':['Primary trade','முதன்மைத் தொழில்','मुख्य कार्य','প্রধান কাজ'],
+  'signup.exp':['Years of experience','அனுபவ ஆண்டுகள்','अनुभव के वर्ष','অভিজ্ঞতার বছর'],
+  'signup.terms':['I accept the cooperative terms','விதிமுறைகளை ஏற்கிறேன்','मैं शर्तें स्वीकार करता हूँ','আমি শর্তাবলী মানছি'],
+  'signup.submit':['Create account','கணக்கை உருவாக்கு','खाता बनाएँ','অ্যাকাউন্ট তৈরি করুন'],
+  'signup.haveAccount':['Already registered?','ஏற்கனவே பதிவு செய்துள்ளீர்களா?','पहले से पंजीकृत?','আগেই নিবন্ধিত?'],
+  'signup.signin':['Sign in','உள்நுழையவும்','साइन इन करें','সাইন ইন করুন'],
+  'signup.err':['Could not create the account','கணக்கை உருவாக்க முடியவில்லை','खाता नहीं बन सका','অ্যাকাউন্ট তৈরি হয়নি'],
+  'track.updating':['updating','புதுப்பிக்கிறது','अपडेट हो रहा है','আপডেট হচ্ছে'],
+  'dispatch.p.started':['Work started','வேலை தொடங்கியது','काम शुरू','কাজ শুরু'],
+  'dispatch.p.completed':['Work completed','வேலை முடிந்தது','काम पूरा','কাজ সম্পন্ন'],
   'login.waking':['waking the server…','சேவையகம் தயாராகிறது…','सर्वर जाग रहा है…','সার্ভার জাগছে…'],
   'dispatch.title':['Finding a member','உறுப்பினரைத் தேடுகிறது','सदस्य खोज रहे हैं','সদস্য খোঁজা হচ্ছে'],
   'dispatch.searching':['Contacting cooperative members','கூட்டுறவு உறுப்பினர்களைத் தொடர்பு கொள்கிறது','सहकारी सदस्यों से संपर्क','সমবায় সদস্যদের সঙ্গে যোগাযোগ'],
@@ -771,6 +1076,7 @@ const STR = {
   // customer home
   'home.hello':['Hello, {name} 👋','வணக்கம், {name} 👋','नमस्ते, {name} 👋','নমস্কার, {name} 👋'],
   'home.search':['Search plumbing, electrical…','பிளம்பிங், மின் வேலை… தேடுங்கள்','प्लंबिंग, इलेक्ट्रिकल… खोजें','প্লাম্বিং, ইলেকট্রিক্যাল… খুঁজুন'],
+  'app.footer':['COOPERATIVE SERVICES PLATFORM','கூட்டுறவு சேவை தளம்','सहकारी सेवा मंच','সমবায় সেবা প্ল্যাটফর্ম'],
   'live':['LIVE','நேரலை','लाइव','লাইভ'],
   'home.coopBacked':['Cooperative backed','கூட்டுறவு ஆதரவு','सहकारी समर्थित','সমবায় সমর্থিত'],
   'home.heroTitle':['VERIFIED HELP.<br>FAIR PRICES.','சரிபார்க்கப்பட்ட உதவி.<br>நியாயமான விலை.','सत्यापित मदद।<br>उचित दाम।','যাচাই করা সাহায্য।<br>ন্যায্য দাম।'],
@@ -1026,7 +1332,7 @@ const statusbar = (blue) => { const t=new Date(); const hh=t.getHours()%12||12, 
   <div class="batt"><i></i></div></div></div>`; };
 
 const brandBar = () => `<div class="topbar">
-  <div class="brand">${LOGO(38)}<span class="chip">SIH 2026</span></div>
+  <div class="brand">${LOGO(38)}</div>
   <button class="icon-btn" data-a="theme" aria-label="${t('a11y.theme')}">${I(S.theme==='dark'?'sun':'moon',18)}</button>
   <button class="icon-btn" data-a="push" data-v="notifications" aria-label="${t('nav.notifications')}">${I('bell',18)}${S.notifs.some(n=>n.unread)?'<span class="dot"></span>':''}</button>
 </div>`;
@@ -1070,8 +1376,8 @@ SCREENS.login = () => {
       <div style="margin-bottom:16px">${LOGO(36)}
         <div style="margin-top:12px"><div class="eyebrow" style="font-size:13px">${t('login.heading.'+r)}</div><div class="t-sub" style="margin:0;font-size:11.5px">${copy[2]}</div></div></div>
       <form id="login-form" autocomplete="off">
-        <div class="field"><label>${t('login.user')}</label><div class="input">${I('mail',18)}<input id="lg-user" placeholder="${t('login.userPh',{email:DEMO_ACCOUNTS[r].identifier})}" inputmode="email"></div></div>
-        <div class="field"><label>${t('login.pass')}</label><div class="input">${I('lock',18)}<input id="lg-pass" type="password" placeholder="••••••••"><button type="button" data-a="toggle-pass" style="color:var(--faint)">${I('eye',18)}</button></div></div>
+        <div class="field"><label for="lg-user">${t('login.user')}</label><div class="input">${I('mail',18)}<input id="lg-user" name="identifier" autocomplete="username" placeholder="${t('login.userPh',{email:DEMO_ACCOUNTS[r].identifier})}" inputmode="email"></div></div>
+        <div class="field"><label for="lg-pass">${t('login.pass')}</label><div class="input">${I('lock',18)}<input id="lg-pass" name="password" autocomplete="current-password" type="password" placeholder="••••••••"><button type="button" data-a="toggle-pass" style="color:var(--faint)">${I('eye',18)}</button></div></div>
         <div class="err" id="lg-err">${t('login.err')}</div>
         <button class="btn btn-primary" type="submit">${t('login.submit')}</button>
       </form>
@@ -1081,7 +1387,8 @@ SCREENS.login = () => {
         <div class="t-title truncate" style="font-size:13px">${DEMO_ACCOUNTS[r].identifier}</div><div class="t-sub" style="margin:0;font-size:11px">${t('login.masterHint')}</div></div>
         ${I('chevR',18)}
       </button>
-      <p class="t-sub" style="text-align:center;margin-top:14px">${t('login.noAccount')} <b style="color:var(--primary)">${t('login.register')}</b></p>
+      <p class="t-sub" style="text-align:center;margin-top:14px">${t('login.noAccount')}
+        <button data-a="to-signup" style="color:var(--primary);font-weight:800;background:none;border:0;padding:0">${t('login.register')}</button></p>
     </div>
     <p class="t-sub" style="display:flex;justify-content:center;align-items:center;gap:5px;margin:18px 0 30px;font-size:11px">${I('lock',12)} ${t('login.offline')}</p>
   </div></div>` };
@@ -1089,13 +1396,23 @@ SCREENS.login = () => {
 
 // ---------- CUSTOMER ----------
 SCREENS['customer:home'] = () => {
-  const active = S.bookings.find(b=>b.step<4);
+  // On a real backend the only live job worth showing is the one this
+  // session created; the seeded array is for the unwired demo screens.
+  const realBackendSignedIn = !!S.user;
+  const liveReal = (S.activeBooking && !['COMPLETED','CANCELLED','EXHAUSTED'].includes(S.activeBooking.phase))
+    ? S.activeBooking : null;
+  const active = realBackendSignedIn ? null : S.bookings.find(b=>b.step<4);
   return { top:brandBar(), nav:true, body:`<div class="page">
     <div class="row" style="justify-content:space-between">
-      <div><div style="font-size:22px;font-weight:900;letter-spacing:-.02em">${t('home.hello',{name:PERSONAS.customer.short})}</div>
-      <div class="loc" style="margin-top:4px;color:var(--muted)">${I('pin',14)} Adyar, Chennai ${I('chevD',14)}</div></div>
+      <div><div style="font-size:22px;font-weight:900;letter-spacing:-.02em">${t('home.hello',{name:esc(whoShort())})}</div>
+      <div class="loc" style="margin-top:4px;color:var(--muted)">${I('pin',14)} ${esc(whoMeta())} ${I('chevD',14)}</div></div>
     </div>
     <button class="search" data-a="tab" data-v="services">${I('search',18)} ${t('home.search')}</button>
+    ${liveReal?`<button class="card active-bk" style="width:100%;text-align:left" data-a="track-live" data-v="${esc(liveReal.id)}">
+      <div class="row"><div class="svc-ico" style="background:${svc(liveReal.service).color}1f;color:${svc(liveReal.service).color};width:42px;height:42px">${I(svc(liveReal.service).icon,20)}</div>
+      <div class="grow"><div class="row" style="gap:6px"><span class="live"><i></i>${t('live')}</span><span class="t-sub" style="margin:0">${esc(liveReal.code || liveReal.id.slice(0,8))}</span></div>
+      <div class="t-title">${t(DISPATCH_PHASES.find(p=>p.key===(PHASE_ALIAS[liveReal.phase]||liveReal.phase))?.label || 'dispatch.p.requested')}</div>
+      <div class="t-sub">${esc(svc(liveReal.service).name)}${liveReal.detail&&liveReal.detail.worker?' • '+esc(liveReal.detail.worker.name):''}</div></div>${I('chevR',18)}</div></button>`:''}
     ${active?`<button class="card active-bk" style="width:100%;text-align:left" data-a="track" data-v="${active.id}">
       <div class="row"><div class="svc-ico" style="background:${svc(active.service).color}1f;color:${svc(active.service).color};width:42px;height:42px">${I(svc(active.service).icon,20)}</div>
       <div class="grow"><div class="row" style="gap:6px"><span class="live"><i></i>${t('live')}</span><span class="t-sub" style="margin:0">${active.id}</span></div>
@@ -1179,7 +1496,8 @@ SCREENS.success = ({id}) => { const b=S.bookings.find(x=>x.id===id), s=svc(b.ser
     <button class="btn btn-ghost" style="margin-top:10px" data-a="tab" data-v="home">${t('success.home')}</button>
   </div>` }; };
 
-SCREENS['customer:bookings'] = () => { const f=S.bookingFilter; const list=S.bookings.filter(b=>f==='active'?b.step<4:b.step>=4);
+SCREENS['customer:bookings'] = () => { const f=S.bookingFilter;
+  const list = S.user ? [] : S.bookings.filter(b=>f==='active'?b.step<4:b.step>=4);
   return { top:titleBar(t('bookings.title'),t('bookings.sub'),false), nav:true, body:`<div class="page">
   <div class="seg" style="margin-bottom:14px"><button class="${f==='active'?'on':''}" data-a="bfilter" data-v="active">${t('bookings.active')}</button><button class="${f==='past'?'on':''}" data-a="bfilter" data-v="past">${t('status.completed')}</button></div>
   ${list.length?`<div class="list">${list.map(b=>{const s=svc(b.service),w=WORKERS[b.service];return `<button class="card" style="padding:14px;text-align:left;width:100%" data-a="track" data-v="${b.id}">
@@ -1222,14 +1540,14 @@ const jobSlot = sl => dayLabel(sl.day) + (sl.in ? ', '+t('slot.in'+sl.in) : sl.t
 const jobStatus = st => st==='done'?`<span class="badge b-green">${t('status.completed')}</span>`:st==='active'?`<span class="badge b-amber">${t('status.progress')}</span>`:`<span class="badge b-blue">${t('status.upcoming')}</span>`;
 SCREENS['worker:home'] = () => { const next=S.jobs.find(j=>j.status!=='done'); const r=S.request;
   return { top:brandBar(), nav:true, body:`<div class="page">
-    <div style="font-size:22px;font-weight:900;letter-spacing:-.02em">${t('home.hello',{name:PERSONAS.worker.short})}</div>
+    <div style="font-size:22px;font-weight:900;letter-spacing:-.02em">${t('home.hello',{name:esc(whoShort())})}</div>
     <div class="t-sub" style="margin-bottom:14px">${t('worker.member',{coop:'Adyar Plumbers Cooperative', id:'TN-0417'})}</div>
     <div class="card online-card ${S.online?'on':''}"><div class="pulse"></div><div class="grow"><div class="t-title">${t(S.online?'worker.online':'worker.offline')}</div><div class="t-sub">${t(S.online?'worker.onlineSub':'worker.offlineSub')}</div></div>
       <button class="toggle ${S.online?'on':''}" style="${S.online?'background:rgba(255,255,255,.3)':''}" data-a="online" aria-label="${t('a11y.toggle')}"></button></div>
     <div class="kpis"><div class="card kpi"><span>${t('day.today')}</span><b style="color:var(--success)">${inr(S.earningsToday)}</b></div><div class="card kpi"><span>${t('nav.jobs')}</span><b>${S.jobsToday}</b></div><div class="card kpi"><span>${t('kpi.rating')}</span><b>4.9★</b></div></div>
     ${S.online&&r?`<div class="card request"><div class="row" style="position:relative">
-        <div class="grow"><span class="badge b-blue">${I('zap',11)} ${t('req.new')}</span><div class="t-title" style="font-size:16px;margin-top:8px">${r.live ? r.title : t('job.'+r.title)}</div>
-        <div class="t-sub">${[r.customer, r.area, r.dist].filter(Boolean).join(' • ')}</div></div>
+        <div class="grow"><span class="badge b-blue">${I('zap',11)} ${t('req.new')}</span><div class="t-title" style="font-size:16px;margin-top:8px">${r.live ? esc(r.title) : t('job.'+r.title)}</div>
+        <div class="t-sub">${[esc(r.customer), esc(r.area), esc(r.dist)].filter(Boolean).join(' • ')}</div></div>
         <div class="ring"><svg width="48" height="48"><circle cx="24" cy="24" r="20" fill="none" stroke="var(--primary-soft)" stroke-width="4"/><circle class="fg" cx="24" cy="24" r="20" fill="none" stroke="var(--primary)" stroke-width="4" stroke-linecap="round" style="animation-delay:-${Math.min((S.reqWindow||45)-1,Math.floor((Date.now()-S.reqStart)/1000))}s"/></svg><b id="req-count">${S.reqWindow||45}</b></div></div>
       <div class="row" style="justify-content:space-between;margin:14px 0;position:relative"><span class="t-sub" style="margin:0">${t('req.earn')}</span><b style="font-size:20px;color:var(--success)">${r.pay==null?'—':inr(r.pay)}</b></div>
       <div class="row" style="gap:10px;position:relative"><button class="btn btn-sm btn-danger-soft" style="flex:1" data-a="decline">${t('req.decline')}</button><button class="btn btn-sm btn-primary" style="flex:2" data-a="accept">${t('req.accept')}</button></div></div>`
@@ -1245,7 +1563,49 @@ SCREENS['worker:home'] = () => { const next=S.jobs.find(j=>j.status!=='done'); c
     </div>
   </div>` }; };
 
+// Renders one of the worker's real assignments. Which button appears is
+// decided by the booking's status, because the server rejects a transition
+// that is not legal from where the booking currently is.
+// A booking as the Supabase loop stores it. Which button shows is decided by
+// status, and the RLS policies decide whether pressing it does anything.
+function sbJobCard(b){
+  const mine = b.worker_id === S.sbUserId;
+  const net = Math.round(Number(b.price) * (100-COMMISSION_PCT)/100);
+  const action =
+    b.status==='pending'  ? `<button class="btn btn-primary btn-sm" data-a="sb-accept" data-v="${esc(b.id)}">${t('jobs.accept')}</button>`
+  : b.status==='accepted' && mine ? `<button class="btn btn-primary btn-sm" data-a="job-start" data-v="${esc(b.id)}">${t('jobs.start')}</button>`
+  : b.status==='started'  && mine ? `<button class="btn btn-primary btn-sm" data-a="job-done" data-v="${esc(b.id)}">${t('jobs.done')}</button>`
+  : `<span class="t-sub" style="margin:0">${esc(b.status)}</span>`;
+  return `<div class="card" style="padding:14px;border:1.5px solid var(--primary)">
+    <div class="row"><div class="grow">
+      <div class="t-title">${esc(t('svc.'+b.service))}</div>
+      <div class="t-sub">${esc(b.code)}${b.slot?' • '+esc(b.slot):''}</div>
+    </div><span class="badge ${b.status==='pending'?'b-amber':'b-blue'}">${esc(b.status)}</span></div>
+    <div class="row" style="justify-content:space-between;margin-top:10px">
+      <b>${inr(net)}</b>${action}</div>
+  </div>`;
+}
+
+function liveJobCard(b){
+  const status = b.status;
+  const pay = b.estimatedTotal!=null ? Math.round(Number(b.estimatedTotal) * (100-COMMISSION_PCT)/100) : null;
+  const action = status==='CONFIRMED'
+    ? `<button class="btn btn-primary btn-sm" data-a="job-start" data-v="${esc(b.id)}">${t('jobs.start')}</button>`
+    : status==='IN_PROGRESS'
+      ? `<button class="btn btn-primary btn-sm" data-a="job-done" data-v="${esc(b.id)}">${t('jobs.done')}</button>`
+      : `<span class="t-sub" style="margin:0">${t('jobs.confirming')}</span>`;
+  return `<div class="card" style="padding:14px;border:1.5px solid var(--primary)">
+    <div class="row"><div class="grow">
+      <div class="t-title">${esc(t('svc.'+b.serviceCategoryId))}</div>
+      <div class="t-sub">${esc(b.customerName||'')}${b.distanceKm!=null?` • ${Number(b.distanceKm).toFixed(1)} km`:''}</div>
+    </div><span class="badge b-blue">${esc(status)}</span></div>
+    <div class="row" style="justify-content:space-between;margin-top:10px">
+      <b>${pay==null?'—':inr(pay)}</b>${action}</div>
+  </div>`;
+}
+
 SCREENS['worker:jobs'] = () => ({ top:titleBar(t('jobs.title'),t('jobs.sub'),false), nav:true, body:`<div class="page"><div class="list">
+  ${IS_SB ? (S.sbJobs||[]).map(sbJobCard).join('') : (S.workerJobs||[]).map(liveJobCard).join('')}
   ${S.jobs.map(j=>`<div class="card" style="padding:14px"><div class="row"><div class="grow"><div class="t-title">${t('job.'+j.title)}</div><div class="t-sub">${j.id} • ${j.customer} • ${j.area}</div></div>
   ${jobStatus(j.status)}</div>
   <div class="row" style="justify-content:space-between;margin-top:10px"><span class="t-sub row" style="margin:0;gap:6px">${I('clock',14)} ${jobSlot(j.slot)}</span><b>${inr(j.pay)}</b></div>
@@ -1312,6 +1672,62 @@ SCREENS['admin:dispatch'] = () => { const f=S.dispatchFilter; const tone={enrout
     <div class="t-sub row" style="gap:6px;margin-top:10px">${I('pin',13)} ${d.area}</div></div>`}).join('')}</div>
   </div>` }; };
 
+// ---------- SIGN UP ----------
+// Creates a real account through the API. A customer needs an address the
+// dispatch search can use, so the form collects one; a worker additionally
+// picks the cooperative they are joining and the trade they are registering.
+const SIGNUP_FIELDS = {
+  customer: [
+    {k:'fullName', type:'text',  auto:'name'},
+    {k:'email',    type:'email', auto:'email'},
+    {k:'phone',    type:'tel',   auto:'tel'},
+    {k:'password', type:'password', auto:'new-password'},
+    {k:'address',  type:'text',  auto:'street-address'}
+  ],
+  worker: [
+    {k:'fullName', type:'text',  auto:'name'},
+    {k:'email',    type:'email', auto:'email'},
+    {k:'phone',    type:'tel',   auto:'tel'},
+    {k:'password', type:'password', auto:'new-password'},
+    {k:'address',  type:'text',  auto:'street-address'}
+  ]
+};
+
+SCREENS.signup = () => {
+  const r = S.loginRole === 'admin' ? 'customer' : S.loginRole;
+  const fields = SIGNUP_FIELDS[r];
+  return { raw:true, html:`${statusbar(true)}<div class="content anim-${S.anim}"><div>
+    <div class="login-hero">
+      ${langPicker('hero-langs')}
+      <div class="eyebrow" style="color:#bfdbfe;margin-top:22px">${t('signup.title.'+r)}</div>
+      <div class="h-display" style="margin-top:6px;font-size:26px">${t('signup.sub.'+r)}</div>
+    </div>
+    <div class="card login-card">
+      <div style="margin-bottom:16px">${LOGO(30)}</div>
+      <form id="signup-form" autocomplete="on">
+        ${fields.map(f=>`<div class="field">
+          <label for="su-${f.k}">${t('signup.'+f.k)}</label>
+          <div class="input"><input id="su-${f.k}" name="${f.k}" type="${f.type}" autocomplete="${f.auto}" required
+            ${f.k==='password'?'minlength="8"':''} ${f.k==='phone'?'minlength="10"':''} placeholder="${t('signup.ph.'+f.k)}"></div>
+        </div>`).join('')}
+        ${r==='worker'?`<div class="field"><label for="su-coop">${t('signup.coop')}</label>
+          <div class="input"><select id="su-coop" name="cooperativeId" required>${(S.coops||[]).map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></div></div>
+        <div class="field"><label for="su-skill">${t('signup.skill')}</label>
+          <div class="input"><select id="su-skill" name="primarySkillId" required>${(S.skills||[]).map(x=>`<option value="${esc(x.id)}">${esc(t('svc.'+x.id))}</option>`).join('')}</select></div></div>
+        <div class="field"><label for="su-exp">${t('signup.exp')}</label>
+          <div class="input"><input id="su-exp" name="experienceYears" type="number" min="0" max="60" value="3" required></div></div>`:''}
+        <div class="field" style="flex-direction:row;align-items:center;gap:9px">
+          <input id="su-terms" name="acceptedTerms" type="checkbox" required style="width:17px;height:17px;accent-color:var(--primary)">
+          <label for="su-terms" style="margin:0;font-size:11.5px;font-weight:600">${t('signup.terms')}</label>
+        </div>
+        <div class="err" id="su-err"></div>
+        <button class="btn btn-primary" type="submit">${t('signup.submit')}</button>
+      </form>
+      <p class="t-sub" style="text-align:center;margin-top:14px">${t('signup.haveAccount')}
+        <button data-a="to-login" style="color:var(--primary);font-weight:800;background:none;border:0;padding:0">${t('signup.signin')}</button></p>
+    </div></div></div>` };
+};
+
 // ---------- LIVE DISPATCH (customer) ----------
 // Every line on this screen comes from the server: the phase is whatever the
 // dispatch engine last emitted, and the worker block appears only once a
@@ -1320,17 +1736,24 @@ const DISPATCH_PHASES = [
   { key:'REQUESTED',        label:'dispatch.p.requested' },
   { key:'DISPATCHING_TOP3', label:'dispatch.p.top3' },
   { key:'DISPATCHING_POOL', label:'dispatch.p.pool' },
-  { key:'ASSIGNED',         label:'dispatch.p.assigned' }
+  { key:'ASSIGNED',         label:'dispatch.p.assigned' },
+  { key:'IN_PROGRESS',      label:'dispatch.p.started' },
+  { key:'COMPLETED',        label:'dispatch.p.completed' }
 ];
+// CONFIRMED is a server-side durability step between accepting and starting;
+// the customer has nothing to do about it, so it shares the assigned row.
+const PHASE_ALIAS = { TOP3:'DISPATCHING_TOP3', POOL:'DISPATCHING_POOL', CONFIRMED:'ASSIGNED', SETTLED:'COMPLETED' };
 
 SCREENS.dispatch = ({id}) => {
   const b = S.activeBooking && S.activeBooking.id===id ? S.activeBooking : null;
   if(!b) return { top:titleBar(t('dispatch.title'),'',true), body:`<div class="page"><div class="empty"><div class="t-title">${t('dispatch.gone')}</div></div></div>` };
 
   const phase = b.phase || 'REQUESTED';
-  const done = phase==='ASSIGNED'||phase==='CONFIRMED'||phase==='IN_PROGRESS'||phase==='COMPLETED';
+  const assigned = ['ASSIGNED','CONFIRMED','IN_PROGRESS','COMPLETED','SETTLED'].includes(phase);
+  const done = assigned;
   const exhausted = phase==='EXHAUSTED';
-  const idx = Math.max(0, DISPATCH_PHASES.findIndex(p=>p.key===phase));
+  const shown = PHASE_ALIAS[phase] || phase;
+  const idx = Math.max(0, DISPATCH_PHASES.findIndex(p=>p.key===shown));
   const w = b.detail && b.detail.worker;
   const elapsed = Math.floor((Date.now()-b.startedAt)/1000);
 
@@ -1346,6 +1769,7 @@ SCREENS.dispatch = ({id}) => {
              <p class="t-sub" style="margin-top:6px">${t('dispatch.elapsed',{n:elapsed})}</p>`}
       <div class="row" style="justify-content:center;gap:6px;margin-top:10px">
         <span class="badge ${S.socketLive?'b-green':'b-amber'}">${S.socketLive?t('dispatch.live'):t('dispatch.connecting')}</span>
+        ${assigned?`<span class="badge b-blue">${t('track.updating')}</span>`:''}
       </div>
     </div>
 
@@ -1360,9 +1784,9 @@ SCREENS.dispatch = ({id}) => {
 
     ${w?`<div class="sec-head"><h3>${t('dispatch.worker')}</h3></div>
     <div class="card list-item">
-      ${avatar((w.name||'?').split(' ').map(x=>x[0]).join('').slice(0,2), '#16a34a', 44)}
-      <div class="grow"><div class="t-title">${w.name||'—'}</div>
-      <div class="t-sub">${[w.cooperative, w.rating?`${Number(w.rating).toFixed(2)}★ (${w.ratingCount||0})`:null, w.distanceKm!=null?`${Number(w.distanceKm).toFixed(1)} km`:null].filter(Boolean).join(' • ')}</div></div>
+      ${avatar(esc((w.name||'?').split(' ').map(x=>x[0]).join('').slice(0,2)), '#16a34a', 44)}
+      <div class="grow"><div class="t-title">${esc(w.name)||'—'}</div>
+      <div class="t-sub">${[esc(w.cooperative), w.rating?`${Number(w.rating).toFixed(2)}★ (${w.ratingCount||0})`:null, w.distanceKm!=null?`${Number(w.distanceKm).toFixed(1)} km`:null].filter(Boolean).join(' • ')}</div></div>
     </div>`:''}
 
     <p class="t-sub" style="text-align:center;margin-top:14px;font-size:11.5px">${t('dispatch.note')}</p>
@@ -1370,9 +1794,21 @@ SCREENS.dispatch = ({id}) => {
 };
 
 // ---------- PROFILE (shared) ----------
+// Whoever actually signed in. Falls back to the sample persona only when
+// there is no session, which is the unwired-screens case.
+const who = () => (S.user && S.user.name) ? S.user : null;
+const whoShort = () => { const u = who(); if(!u) return PERSONAS[S.role].short; return String(u.name).trim().split(/\s+/)[0]; };
+const whoName  = () => { const u = who(); return u ? u.name : PERSONAS[S.role].name; };
+const whoMeta  = () => { const u = who(); return (u && u.address) ? u.address : PERSONAS[S.role].meta; };
+const whoInitials = () => {
+  const u = who(); if(!u) return PERSONAS[S.role].initials;
+  return String(u.name).trim().split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase();
+};
+
 const profileScreen = () => { const p=PERSONAS[S.role];
+  const dName=esc(whoName()), dMeta=esc(whoMeta()), dInit=esc(whoInitials());
   return { top:titleBar(t('nav.profile'),'',false), nav:true, body:`<div class="page">
-  <div class="card profile-head">${avatar(p.initials,p.color)}<div style="font-size:19px;font-weight:900">${p.name}</div><div class="t-sub">${p.meta}</div>
+  <div class="card profile-head">${avatar(dInit,p.color)}<div style="font-size:19px;font-weight:900">${dName}</div><div class="t-sub">${dMeta}</div>
     <div class="row" style="gap:6px;margin-top:10px"><span class="badge b-blue">${p.label}</span><span class="badge b-amber">${I('zap',11)} ${t('profile.master')}</span></div></div>
   <div class="sec-head"><h3>${t('profile.switch')}</h3><span class="t-sub" style="margin:0">${t('profile.masterOnly')}</span></div>
   <div class="list">${['customer','worker','admin'].map(r=>`<button class="role-opt ${S.role===r?'on':''}" data-a="role" data-v="${r}"><div class="radio"></div>${avatar(PERSONAS[r].initials,PERSONAS[r].color,36)}<div class="grow"><div class="t-title" style="font-size:13.5px">${PERSONAS[r].label}</div><div class="t-sub truncate">${PERSONAS[r].name}</div></div></button>`).join('')}</div>
@@ -1396,9 +1832,9 @@ function render(keepScroll){
   document.documentElement.dataset.theme = S.theme;
   document.documentElement.lang = S.lang;
   [['scroll-up','a11y.scrollUp'],['scroll-down','a11y.scrollDown']].forEach(([id,k])=>{ const b=document.getElementById(id); b.setAttribute('aria-label',t(k)); b.title=t(k); });
-  if(!S.splashDone){ app.innerHTML = `<div class="splash">${LOGO(76)}<p style="margin-top:22px">${t('app.tagline')}</p><div class="loader"><i></i></div><div class="foot">SMART INDIA HACKATHON 2026</div></div>`; return; }
+  if(!S.splashDone){ app.innerHTML = `<div class="splash">${LOGO(76)}<p style="margin-top:22px">${t('app.tagline')}</p><div class="loader"><i></i></div><div class="foot">${t('app.footer')}</div></div>`; return; }
   let scr;
-  if(!S.user) scr = SCREENS.login();
+  if(!S.user) scr = (S.authView==='signup' ? SCREENS.signup() : SCREENS.login());
   else { const top = S.stack[S.stack.length-1]; scr = top ? SCREENS[top.name](top.params||{}) : SCREENS[S.role+':'+S.tab](); }
   const anim = keepScroll ? '' : 'anim-'+S.anim;
   if(scr.raw) app.innerHTML = scr.html + toastHtml();
@@ -1435,6 +1871,21 @@ setInterval(()=>{ const t=new Date(); document.querySelectorAll('.statusbar > sp
 /* ===================== ACTIONS ===================== */
 const A = {
   'login-role': v => { S.loginRole=v; S.anim=''; render(true); },
+  'to-signup': async () => {
+    S.authView='signup'; S.anim='fwd'; render();
+    if(S.loginRole==='worker' && (!S.coops || !S.skills)){
+      try{
+        const [coops, services] = await Promise.all([
+          fetch(`${API_BASE}/public/cooperatives`).then(r=>r.json()),
+          fetch(`${API_BASE}/services`).then(r=>r.json())
+        ]);
+        S.coops = Array.isArray(coops) ? coops : (coops.items || []);
+        S.skills = Array.isArray(services) ? services : (services.items || []);
+        render(true);
+      }catch(e){ console.warn('[signup refs]', e.message); }
+    }
+  },
+  'to-login': () => { S.authView='login'; S.anim='back'; render(); },
   'fill-master': () => { const u=document.getElementById('lg-user'), p=document.getElementById('lg-pass');
     const acct = DEMO_ACCOUNTS[S.loginRole];
     typeInto(u, acct.identifier, 22, ()=>typeInto(p, acct.password, 40)); },
@@ -1456,6 +1907,14 @@ const A = {
     S.bookingBusy = true; render(true);
     try{
       const s = svc(v);
+      if(IS_SB){
+        const row = await sbCreateBooking(v, s.price, SLOTS[S.draft.slot]);
+        S.activeBooking = { id:row.id, code:row.code, service:v, phase:'DISPATCHING_TOP3',
+                            sbStatus:'pending', detail:null, startedAt:Date.now() };
+        S.stack=[{name:'dispatch', params:{id:row.id}}]; S.anim='fade';
+        render();
+        return;
+      }
       const res = await apiPost('/bookings/request', {
         serviceCategoryId: serverServiceId(v),
         location: DEMO_LOCATION,
@@ -1466,6 +1925,7 @@ const A = {
       const id = res.bookingId || res.id;
       S.activeBooking = { id, service:v, phase:'REQUESTED', detail:null, startedAt:Date.now() };
       S.stack=[{name:'dispatch', params:{id}}]; S.anim='fade';
+      startBookingPoll();
       render();
     }catch(ex){
       toast(ex.message || 'Could not create the booking');
@@ -1475,6 +1935,7 @@ const A = {
   },
   'track-replace': v => { S.tab='bookings'; S.stack=[{name:'track',params:{id:v}}]; S.anim='fwd'; render(); },
   track: v => push('track',{id:v}),
+  'track-live': v => { S.stack=[{name:'dispatch', params:{id:v}}]; S.anim='fwd'; render(); },
   advance: v => { const b=S.bookings.find(x=>x.id===v); if(b.step<4){ b.step++; render(true); toast(STEPS[b.step].t + (b.step===4?' 🎉':'')); } },
   bfilter: v => { S.bookingFilter=v; render(true); },
   'read-all': () => { S.notifs.forEach(n=>n.unread=false); render(true); toast(t('toast.readAll')); },
@@ -1499,12 +1960,16 @@ const A = {
   // A live offer is answered on the server, which takes the Redis lock so
   // two workers cannot claim the same booking. Anything without a
   // dispatchLogId is the unwired sample offer and stays local.
+  'sb-accept': async v => {
+    try{ await sbAdvance(v,'accepted',{ worker_id:S.sbUserId }); await sbRefreshWorker(); toast(t('toast.accepted')); }
+    catch(ex){ toast(ex.message || t('dispatch.taken')); }
+  },
   accept: async () => {
     const r=S.request; if(!r) return;
     if(!r.live || !r.dispatchLogId){ S.request=null; render(true); toast(t('toast.accepted')); return; }
     try{
       await apiPost(`/dispatch/${r.dispatchLogId}/respond`, { response:'ACCEPT' });
-      S.request=null; render(true); toast(t('toast.accepted'));
+      S.request=null; render(true); toast(t('toast.accepted')); refreshWorkerJobs();
     }catch(ex){ S.request=null; render(true); toast(ex.message || t('dispatch.taken')); }
   },
   decline: async () => {
@@ -1512,12 +1977,49 @@ const A = {
     if(r.live && r.dispatchLogId){ try{ await apiPost(`/dispatch/${r.dispatchLogId}/respond`, { response:'DECLINE' }); }catch(e){} }
     S.request=null; render(true); toast(t('toast.declined'));
   },
-  'job-start': v => { S.jobs.find(j=>j.id===v).status='active'; render(true); toast(t('toast.started')); },
-  'job-done': v => { const j=S.jobs.find(x=>x.id===v); j.status='done'; S.earningsToday+=j.pay; S.jobsToday++; S.week[6]+=j.pay; render(true); toast(t('toast.credited',{amt:inr(j.pay)})); },
+  // A real booking starts on the server, which checks the transition is
+  // legal; the sample rows keep their local behaviour.
+  'job-start': async v => {
+    if(IS_SB){
+      try{ await sbAdvance(v,'started'); await sbRefreshWorker(); toast(t('toast.started')); }
+      catch(ex){ toast(ex.message); }
+      return;
+    }
+    const live = (S.workerJobs||[]).find(j=>j.id===v);
+    if(live){
+      try{ await apiPatch(`/bookings/${v}/start`); await refreshWorkerJobs(); toast(t('toast.started')); }
+      catch(ex){ toast(ex.message); }
+      return;
+    }
+    const j=S.jobs.find(x=>x.id===v); if(j){ j.status='active'; render(true); toast(t('toast.started')); }
+  },
+  'job-done': async v => {
+    if(IS_SB){
+      const job = (S.sbJobs||[]).find(j=>j.id===v);
+      try{
+        await sbAdvance(v,'completed');
+        await sbRefreshWorker();
+        const net = job ? Math.round(Number(job.price) * (100-COMMISSION_PCT)/100) : null;
+        toast(net==null ? t('toast.started') : t('toast.credited',{amt:inr(net)}));
+      }catch(ex){ toast(ex.message); }
+      return;
+    }
+    const live = (S.workerJobs||[]).find(j=>j.id===v);
+    if(live){
+      try{
+        const res = await apiPatch(`/bookings/${v}/complete`);
+        await refreshWorkerJobs();
+        toast(res?.workerPayout!=null ? t('toast.credited',{amt:inr(Number(res.workerPayout))}) : t('toast.started'));
+      }catch(ex){ toast(ex.message); }
+      return;
+    }
+    const j=S.jobs.find(x=>x.id===v); if(!j) return;
+    j.status='done'; S.earningsToday+=j.pay; S.jobsToday++; S.week[6]+=j.pay; render(true); toast(t('toast.credited',{amt:inr(j.pay)}));
+  },
   approve: v => { const m=S.members[+v]; m.status='verified'; render(true); toast(t('toast.approved',{name:m.name})); },
   dfilter: v => { S.dispatchFilter=v; render(true); },
   role: v => { if(S.role===v) return; S.role=v; S.tab='home'; S.stack=[]; S.request=null; clearTimeout(S.reqTimer); S.reqTimer=null; S.anim='fade'; render(); toast(t('toast.switched',{role:PERSONAS[v].label})); },
-  logout: () => { disconnectSocket(); stopLocationPing(); try{ fetch(`${API_BASE}/auth/logout`, {method:'POST', headers:{Authorization:`Bearer ${S.token}`}, credentials:'include'}); }catch(e){}
+  logout: () => { if(IS_SB){ sbUnsubscribe(); sbSignOut(); } disconnectSocket(); stopLocationPing(); stopBookingPoll(); try{ fetch(`${API_BASE}/auth/logout`, {method:'POST', headers:{Authorization:`Bearer ${S.token}`}, credentials:'include'}); }catch(e){}
     S.user=null; S.token=null; S.activeBooking=null; S.stack=[]; S.tab='home'; S.request=null; S.anim='fade'; render(); }
 };
 
@@ -1532,6 +2034,78 @@ const SPINNER = '<span style="display:inline-block;width:18px;height:18px;border
 // Signs in against the live API. The password is checked by the server
 // (bcrypt), the access token is kept in memory only, and the refresh token
 // arrives as an httpOnly cookie we never read from script.
+// Registers through the API, then signs straight in with the credentials
+// just created so the person lands in the app rather than back at a form.
+document.addEventListener('submit', async e => {
+  if(e.target.id!=='signup-form') return; e.preventDefault();
+  if(S.signupBusy) return;
+  const role = S.loginRole==='admin' ? 'customer' : S.loginRole;
+  const btn = e.target.querySelector('button[type=submit]');
+  const err = document.getElementById('su-err');
+  const val = id => (document.getElementById(id)||{}).value;
+
+  err.classList.remove('show');
+  S.signupBusy = true; btn.disabled = true; btn.innerHTML = SPINNER;
+  const slow = setTimeout(()=>{ btn.innerHTML = SPINNER + ' <span style="margin-left:8px;font-size:12px">' + t('login.waking') + '</span>'; }, 2500);
+
+  try{
+    const email = val('su-email').trim();
+    const password = val('su-password');
+    const address = val('su-address').trim();
+    const base = {
+      fullName: val('su-fullName').trim(),
+      email, phone: val('su-phone').trim(), password,
+      acceptedTerms: document.getElementById('su-terms').checked
+    };
+    // Registration needs coordinates for the address. Without a geocoder the
+    // member's own area is used, which is where the dispatch search needs
+    // them to be; a real deployment geocodes what they typed.
+    const body = role==='worker'
+      ? { ...base,
+          cooperativeId: val('su-coop'),
+          primarySkillId: val('su-skill'),
+          experienceYears: Number(val('su-exp')||0),
+          homeLocation: { lat: WORKER_FALLBACK_POS.lat, lng: WORKER_FALLBACK_POS.lng, address },
+          serviceAreaRadiusKm: 12 }
+      : { ...base, address, lat: DEMO_LOCATION.lat, lng: DEMO_LOCATION.lng };
+
+    if(IS_SB){
+      await sbSignUp(role, {
+        email, password,
+        name: base.fullName, phone: base.phone, locality: address
+      });
+      clearTimeout(slow);
+      S.authView='login'; S.tab='home'; S.stack=[]; S.anim='fade';
+      sbSubscribe();
+      if(S.role==='worker') sbRefreshWorker();
+      render();
+      toast(t('toast.signedIn',{ name: S.user.name }));
+      return;
+    }
+    await apiRegister(role, body);
+    clearTimeout(slow);
+
+    // Sign in with what was just created, so the session is a normal one.
+    const { token } = await apiLogin(role, email, password);
+    const me = await apiMe(token);
+    S.token = token;
+    S.user = { id:me.userId, name:me.fullName, email:me.email, phone:me.phone,
+               address: me.customerProfile?.defaultAddress || address };
+    S.role = (me.role || role).toLowerCase();
+    S.authView='login'; S.tab='home'; S.stack=[]; S.anim='fade';
+    connectSocket();
+    if(S.role==='worker'){ startLocationPing(); loadIncomingOffer(); refreshWorkerJobs(); }
+    render();
+    toast(t('toast.signedIn',{ name: me.fullName }));
+  }catch(ex){
+    clearTimeout(slow);
+    err.textContent = ex.message || t('signup.err');
+    err.classList.add('show');
+  }finally{
+    S.signupBusy=false; btn.disabled=false; btn.innerHTML=t('signup.submit');
+  }
+});
+
 document.addEventListener('submit', async e => {
   if(e.target.id!=='login-form') return; e.preventDefault();
   const identifier = document.getElementById('lg-user').value.trim();
@@ -1549,6 +2123,16 @@ document.addEventListener('submit', async e => {
   const slow = setTimeout(()=>{ btn.innerHTML = SPINNER + ' <span style="margin-left:8px;font-size:12px">' + t('login.waking') + '</span>'; }, 2500);
 
   try {
+    if(IS_SB){
+      await sbSignIn(identifier, password);
+      clearTimeout(slow);
+      S.tab='home'; S.stack=[]; S.anim='fade';
+      sbSubscribe();
+      if(S.role==='worker') sbRefreshWorker();
+      render();
+      toast(t('toast.signedIn',{ name: S.user.name }));
+      return;
+    }
     const { token } = await apiLogin(role, identifier, password);
     const me = await apiMe(token);
     clearTimeout(slow);
@@ -1559,7 +2143,7 @@ document.addEventListener('submit', async e => {
     S.role = (me.role || role).toLowerCase();
     S.tab='home'; S.stack=[]; S.anim='fade';
     connectSocket();
-    if(S.role==='worker'){ startLocationPing(); loadIncomingOffer(); }
+    if(S.role==='worker'){ startLocationPing(); loadIncomingOffer(); refreshWorkerJobs(); }
     render();
     toast(t('toast.signedIn',{ name: me.fullName }));
   } catch (ex) {
