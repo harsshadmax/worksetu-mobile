@@ -549,17 +549,91 @@ async function sbRefreshWorker(){
 
 async function sbRefreshCustomerBooking(){
   const c = sbClient(); if(!c || !S.activeBooking) return;
+  // Hold on to the booking this call is about. A reply that arrives after the
+  // customer has booked something else belongs to the previous job, and
+  // writing it onto the current one showed a brand new request as already
+  // completed.
+  const booking = S.activeBooking;
   const { data } = await c.from('bookings')
     .select('id, code, service, status, price, slot, worker_id')
-    .eq('id', S.activeBooking.id).maybeSingle();
-  if(!data) return;
-  S.activeBooking.sbStatus = data.status;
-  S.activeBooking.phase = SB_STATUS_TO_PHASE[data.status] || 'REQUESTED';
-  if(data.worker_id && !(S.activeBooking.detail && S.activeBooking.detail.worker)){
+    .eq('id', booking.id).maybeSingle();
+  if(!data || S.activeBooking !== booking) return;
+
+  booking.sbStatus = data.status;
+  booking.phase = SB_STATUS_TO_PHASE[data.status] || 'REQUESTED';
+  if(data.worker_id && !(booking.detail && booking.detail.worker)){
     const { data: w } = await c.from('profiles').select('name, locality').eq('id', data.worker_id).maybeSingle();
-    if(w) S.activeBooking.detail = { worker: { name:w.name, cooperative:w.locality } };
+    if(w && S.activeBooking === booking) booking.detail = { worker: { name:w.name, cooperative:w.locality } };
   }
-  render(true);
+  if(S.activeBooking === booking) render(true);
+}
+
+// ---- demo dispatch ----
+// One person holding one phone has nobody on the other side, so a booking
+// sits at pending and the monitor never moves. This drives the other side:
+// after a few seconds a seeded cooperative member accepts, travels, and
+// completes the job.
+//
+// It is not a fake. Every step is a real row written by a real signed-in
+// worker session, through the same policies that would reject it if the
+// booking were not theirs to take -- the customer's own session cannot make
+// these writes, and that is the point. What is simulated is the member
+// deciding to accept, not the accepting.
+//
+// ?demo=off turns it off, for showing the honest empty-handed case or for
+// demonstrating with a second device.
+const DEMO_DISPATCH = (new URLSearchParams(location.search).get('demo') !== 'off');
+const DEMO_STEPS = [
+  { status:'accepted',  afterMs:4500 },  // searching, then a member takes it
+  { status:'started',   afterMs:4000 },  // travelling, then work begins
+  { status:'completed', afterMs:5000 }   // job done
+];
+
+let demoWorker = null;
+async function demoWorkerClient(){
+  if(demoWorker) return demoWorker;
+  const c = supabase.createClient(SB_URL, SB_KEY, {
+    auth:{ storageKey:'sb-demo-worker', persistSession:false, autoRefreshToken:false }
+  });
+  const { data, error } = await c.auth.signInWithPassword({
+    email: DEMO_ACCOUNTS.worker.identifier, password: DEMO_ACCOUNTS.worker.password
+  });
+  if(error) throw new Error(error.message);
+  demoWorker = { client:c, userId:data.user.id };
+  return demoWorker;
+}
+
+// Each run carries a token so a second booking cancels the first one's
+// remaining steps rather than both writing over each other.
+let demoRunToken = 0;
+
+async function runDemoDispatch(bookingId){
+  if(!DEMO_DISPATCH || !IS_SB || S.role !== 'customer') return;
+  const token = ++demoRunToken;
+  S.demoRunning = true; render(true);
+
+  try{
+    const { client, userId } = await demoWorkerClient();
+
+    for(const step of DEMO_STEPS){
+      await new Promise(r => setTimeout(r, step.afterMs));
+      // Abandon quietly if this run was superseded, the customer left, or
+      // the booking moved on without us -- a real worker on a second device
+      // beating the timer is a success, not an error.
+      if(token !== demoRunToken) return;
+      if(!S.user || !S.activeBooking || S.activeBooking.id !== bookingId) return;
+      if(['completed','cancelled'].includes(S.activeBooking.sbStatus)) return;
+
+      const patch = step.status === 'accepted' ? { status:'accepted', worker_id:userId } : { status:step.status };
+      const { data, error } = await client.from('bookings').update(patch).eq('id', bookingId).select('id');
+      if(error || !data || !data.length) return;   // policy said no, or someone else has it
+      await client.from('booking_events').insert({ booking_id:bookingId, status:step.status, actor_id:userId });
+    }
+  }catch(e){
+    console.warn('[demo dispatch]', e.message);
+  }finally{
+    if(token === demoRunToken){ S.demoRunning = false; render(true); }
+  }
 }
 
 // ---- realtime ----
@@ -633,6 +707,7 @@ function startBookingPoll(){
     if(!b || !S.token || b.phase==='EXHAUSTED'){ return; }
     try{
       const detail = await apiGet(`/bookings/${b.id}`);
+      if(S.activeBooking !== b) return;   // superseded while the request was in flight
       const status = detail.status || detail.phase;
       const changed = status && status !== b.phase;
       b.detail = detail;
@@ -906,7 +981,7 @@ const dayLabel = v => Array.isArray(v) ? v[0]+' '+tl('months')[v[1]] : t('day.'+
 const SLOTS = ['9:00 AM','11:00 AM','1:00 PM','3:00 PM','5:00 PM','7:00 PM'];
 
 const S = {
-  user:null, token:null, socket:null, socketLive:false, activeBooking:null, reqWindow:45, bookingBusy:false, authView:'login', coops:null, skills:null, pingTimer:null, lastPing:0, bookingPoll:null, workerJobs:null, signupBusy:false, sbUserId:null, sbJobs:null, sbChannel:null,
+  user:null, token:null, socket:null, socketLive:false, activeBooking:null, reqWindow:45, bookingBusy:false, authView:'login', coops:null, skills:null, pingTimer:null, lastPing:0, bookingPoll:null, workerJobs:null, signupBusy:false, sbUserId:null, sbJobs:null, sbChannel:null, demoRunning:false,
   role:'customer', loginRole:'customer', tab:'home', stack:[], anim:'fade',
   theme:'light', lang:'en', splashDone:false,
   draft:{date:0, slot:1},
@@ -1043,6 +1118,7 @@ const STR = {
   'signup.haveAccount':['Already registered?','ஏற்கனவே பதிவு செய்துள்ளீர்களா?','पहले से पंजीकृत?','আগেই নিবন্ধিত?'],
   'signup.signin':['Sign in','உள்நுழையவும்','साइन इन करें','সাইন ইন করুন'],
   'signup.err':['Could not create the account','கணக்கை உருவாக்க முடியவில்லை','खाता नहीं बन सका','অ্যাকাউন্ট তৈরি হয়নি'],
+  'dispatch.simulated':['simulated member','மாதிரி உறுப்பினர்','सिम्युलेटेड सदस्य','সিমুলেটেড সদস্য'],
   'track.updating':['updating','புதுப்பிக்கிறது','अपडेट हो रहा है','আপডেট হচ্ছে'],
   'dispatch.p.started':['Work started','வேலை தொடங்கியது','काम शुरू','কাজ শুরু'],
   'dispatch.p.completed':['Work completed','வேலை முடிந்தது','काम पूरा','কাজ সম্পন্ন'],
@@ -1748,6 +1824,7 @@ SCREENS.dispatch = ({id}) => {
 
   const phase = b.phase || 'REQUESTED';
   const assigned = ['ASSIGNED','CONFIRMED','IN_PROGRESS','COMPLETED','SETTLED'].includes(phase);
+  const finished = ['COMPLETED','SETTLED'].includes(phase);
   const done = assigned;
   const exhausted = phase==='EXHAUSTED';
   const shown = PHASE_ALIAS[phase] || phase;
@@ -1767,7 +1844,8 @@ SCREENS.dispatch = ({id}) => {
              <p class="t-sub" style="margin-top:6px">${t('dispatch.elapsed',{n:elapsed})}</p>`}
       <div class="row" style="justify-content:center;gap:6px;margin-top:10px">
         <span class="badge ${S.socketLive?'b-green':'b-amber'}">${S.socketLive?t('dispatch.live'):t('dispatch.connecting')}</span>
-        ${assigned?`<span class="badge b-blue">${t('track.updating')}</span>`:''}
+        ${assigned&&!S.demoRunning?`<span class="badge b-blue">${t('track.updating')}</span>`:''}
+        ${S.demoRunning?`<span class="badge b-amber">${t('dispatch.simulated')}</span>`:''}
       </div>
     </div>
 
@@ -1776,7 +1854,7 @@ SCREENS.dispatch = ({id}) => {
       ${DISPATCH_PHASES.map((p,i)=>`<div class="row" style="gap:10px;padding:7px 0">
         <div style="width:9px;height:9px;border-radius:50%;background:${exhausted?'var(--faint)':(i<=idx?'var(--primary)':'var(--border)')}"></div>
         <div class="grow t-title" style="font-size:13px;font-weight:${i===idx&&!done?'800':'600'}">${t(p.label)}</div>
-        ${i<idx||done?`<span class="badge b-green">${t('dispatch.doneTag')}</span>`:(i===idx&&!exhausted?`<span class="badge b-blue">${t('dispatch.now')}</span>`:'')}
+        ${i<idx||finished?`<span class="badge b-green">${t('dispatch.doneTag')}</span>`:(i===idx&&!exhausted?`<span class="badge b-blue">${t('dispatch.now')}</span>`:'')}
       </div>`).join('')}
     </div>
 
@@ -1911,6 +1989,7 @@ const A = {
                             sbStatus:'pending', detail:null, startedAt:Date.now() };
         S.stack=[{name:'dispatch', params:{id:row.id}}]; S.anim='fade';
         render();
+        runDemoDispatch(row.id);
         return;
       }
       const res = await apiPost('/bookings/request', {
