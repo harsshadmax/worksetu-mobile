@@ -541,6 +541,26 @@ async function sbWorkerBookings(){
   return data || [];
 }
 
+// The customer's own bookings. RLS already restricts this to them, so there
+// is no owner filter here -- asking for everything returns exactly theirs.
+async function sbRefreshCustomerBookings(){
+  const c = sbClient(); if(!c || !S.sbUserId) return;
+  const { data, error } = await c.from('bookings')
+    .select('id, code, service, status, price, slot, worker_id, created_at')
+    .order('created_at', { ascending:false });
+  if(error){ console.warn('[sb] bookings', error.message); return; }
+  S.sbBookings = data || [];
+
+  // Names for the members on those bookings, so the list can show who took
+  // each job rather than a blank space.
+  const ids = [...new Set((data||[]).map(b=>b.worker_id).filter(Boolean))];
+  if(ids.length){
+    const { data: people } = await c.from('profiles').select('id, name').in('id', ids);
+    S.sbWorkerNames = Object.fromEntries((people||[]).map(p=>[p.id, p.name]));
+  }
+  render(true);
+}
+
 async function sbRefreshWorker(){
   if(!IS_SB || S.role!=='worker') return;
   S.sbJobs = await sbWorkerBookings();
@@ -642,6 +662,7 @@ function sbSubscribe(){
   S.sbChannel = c.channel('worksetu-bookings')
     .on('postgres_changes', { event:'*', schema:'public', table:'bookings' }, () => {
       if(S.role==='worker') sbRefreshWorker();
+      if(S.role==='customer') sbRefreshCustomerBookings();
       if(S.activeBooking) sbRefreshCustomerBooking();
     })
     .subscribe(status => {
@@ -875,6 +896,7 @@ async function resumeSession(){
       if(data.session && await sbAdoptSession(data.session)){
         sbSubscribe();
         if(S.role==='worker') sbRefreshWorker();
+        if(S.role==='customer') sbRefreshCustomerBookings();
         render();
       }
     }catch(e){ /* stay signed out */ }
@@ -978,7 +1000,7 @@ const dayLabel = v => Array.isArray(v) ? v[0]+' '+tl('months')[v[1]] : t('day.'+
 const SLOTS = ['9:00 AM','11:00 AM','1:00 PM','3:00 PM','5:00 PM','7:00 PM'];
 
 const S = {
-  user:null, token:null, socket:null, socketLive:false, activeBooking:null, reqWindow:45, bookingBusy:false, authView:'login', coops:null, skills:null, pingTimer:null, lastPing:0, bookingPoll:null, workerJobs:null, signupBusy:false, sbUserId:null, sbJobs:null, sbChannel:null, demoBusy:false,
+  user:null, token:null, socket:null, socketLive:false, activeBooking:null, reqWindow:45, bookingBusy:false, authView:'login', coops:null, skills:null, pingTimer:null, lastPing:0, bookingPoll:null, workerJobs:null, signupBusy:false, sbUserId:null, sbJobs:null, sbChannel:null, demoBusy:false, sbBookings:null, sbWorkerNames:{},
   role:'customer', loginRole:'customer', tab:'home', stack:[], anim:'fade',
   theme:'light', lang:'en', splashDone:false,
   draft:{date:0, slot:1},
@@ -1248,6 +1270,8 @@ const STR = {
   'bookings.empty.active':['No active bookings','செயலில் உள்ள முன்பதிவுகள் இல்லை','कोई सक्रिय बुकिंग नहीं','কোনো সক্রিয় বুকিং নেই'],
   'bookings.empty.past':['No completed bookings','முடிந்த முன்பதிவுகள் இல்லை','कोई पूरी हुई बुकिंग नहीं','কোনো সম্পন্ন বুকিং নেই'],
   'bookings.emptyBody':['Book a verified cooperative worker in seconds.','சில நொடிகளில் சரிபார்க்கப்பட்ட கூட்டுறவுத் தொழிலாளரை முன்பதிவு செய்யுங்கள்.','कुछ ही सेकंड में सत्यापित सहकारी कामगार बुक करें।','কয়েক সেকেন্ডে যাচাইকৃত সমবায় কর্মী বুক করুন।'],
+  'bookings.loading':['Loading your bookings…','ஏற்றுகிறது…','लोड हो रहा है…','লোড হচ্ছে…'],
+  'status.cancelled':['Cancelled','ரத்து','रद्द','বাতিল'],
   'bookings.browse':['Browse services','சேவைகளைப் பார்','सेवाएँ देखें','পরিষেবা দেখুন'],
   // tracking
   'track.title':['Track Booking','முன்பதிவைக் கண்காணி','बुकिंग ट्रैक करें','বুকিং ট্র্যাক করুন'],
@@ -1582,11 +1606,47 @@ SCREENS.success = ({id}) => { const b=S.bookings.find(x=>x.id===id), s=svc(b.ser
     <button class="btn btn-ghost" style="margin-top:10px" data-a="tab" data-v="home">${t('success.home')}</button>
   </div>` }; };
 
+// A booking as this customer's own list shows it. Tapping one reopens the
+// tracking screen it came from.
+function sbBookingCard(b){
+  const s = svc(b.service) || { name:b.service, color:'#2563eb', icon:'calendar' };
+  const done = ['completed','cancelled'].includes(b.status);
+  const stage = TRACK_STAGES.findIndex(x=>x.status===b.status);
+  const worker = b.worker_id && S.sbWorkerNames ? S.sbWorkerNames[b.worker_id] : null;
+  const when = b.created_at ? new Date(b.created_at).toLocaleDateString(undefined,{day:'numeric',month:'short'}) : '';
+  return `<button class="card" style="padding:14px;text-align:left;width:100%" data-a="open-booking" data-v="${esc(b.id)}">
+    <div class="row"><div class="svc-ico" style="background:${s.color}1f;color:${s.color};width:44px;height:44px">${I(s.icon,20)}</div>
+    <div class="grow"><div class="row" style="justify-content:space-between"><div class="t-title">${esc(s.name)}</div>
+      ${b.status==='cancelled'?`<span class="badge b-gray">${t('status.cancelled')}</span>`
+        : done?`<span class="badge b-green">${t('status.completed')}</span>`
+        : `<span class="badge b-blue">${t(TRACK_STAGES[Math.max(0,stage)].title)}</span>`}</div>
+      <div class="t-sub">${esc(b.code||'')}${when?' • '+esc(when):''}${b.slot?', '+esc(b.slot):''}</div></div></div>
+    ${worker?`<div class="divider" style="margin:12px 0"></div>
+    <div class="row" style="justify-content:space-between"><div class="row" style="gap:8px">
+      ${avatar(esc(String(worker).split(' ').map(x=>x[0]).join('').slice(0,2)), '#f59e0b', 28)}
+      <span style="font-size:13px;font-weight:600">${esc(worker)}</span></div><b>${inr(Number(b.price))}</b></div>`
+    :`<div class="divider" style="margin:12px 0"></div><div class="row" style="justify-content:flex-end"><b>${inr(Number(b.price))}</b></div>`}
+    ${!done && stage>=0?`<div class="progress"><i style="width:${((stage+1)/TRACK_STAGES.length)*100}%"></i></div>`:''}</button>`;
+}
+
 SCREENS['customer:bookings'] = () => { const f=S.bookingFilter;
-  const list = S.user ? [] : S.bookings.filter(b=>f==='active'?b.step<4:b.step>=4);
+  // A signed-in customer sees their own bookings and nothing else. The seeded
+  // array is only for the unwired demo screens, and mixing the two showed
+  // people jobs they had never booked.
+  const rows = S.user
+    ? (S.sbBookings||[]).filter(b => f==='active'
+        ? !['completed','cancelled'].includes(b.status)
+        : ['completed','cancelled'].includes(b.status))
+    : null;
+  const list = rows || S.bookings.filter(b=>f==='active'?b.step<4:b.step>=4);
+  const loading = S.user && S.sbBookings===null;
+
   return { top:titleBar(t('bookings.title'),t('bookings.sub'),false), nav:true, body:`<div class="page">
   <div class="seg" style="margin-bottom:14px"><button class="${f==='active'?'on':''}" data-a="bfilter" data-v="active">${t('bookings.active')}</button><button class="${f==='past'?'on':''}" data-a="bfilter" data-v="past">${t('status.completed')}</button></div>
-  ${list.length?`<div class="list">${list.map(b=>{const s=svc(b.service),w=WORKERS[b.service];return `<button class="card" style="padding:14px;text-align:left;width:100%" data-a="track" data-v="${b.id}">
+  ${loading?`<div class="empty"><div class="t-sub">${t('bookings.loading')}</div></div>`
+  : list.length?`<div class="list">${rows
+      ? rows.map(sbBookingCard).join('')
+      : list.map(b=>{const s=svc(b.service),w=WORKERS[b.service];return `<button class="card" style="padding:14px;text-align:left;width:100%" data-a="track" data-v="${b.id}">
     <div class="row"><div class="svc-ico" style="background:${s.color}1f;color:${s.color};width:44px;height:44px">${I(s.icon,20)}</div>
     <div class="grow"><div class="row" style="justify-content:space-between"><div class="t-title">${s.name}</div>${b.step<4?`<span class="badge b-blue">${STEPS[b.step].t}</span>`:`<span class="badge b-green">${t('status.completed')}</span>`}</div>
     <div class="t-sub">${b.id} • ${dayLabel(b.date)}, ${b.slot}</div></div></div>
@@ -2015,6 +2075,7 @@ const A = {
                             sbStatus:'pending', detail:null, startedAt:Date.now() };
         S.stack=[{name:'dispatch', params:{id:row.id}}]; S.anim='fade';
         render();
+        sbRefreshCustomerBookings();
         return;
       }
       const res = await apiPost('/bookings/request', {
@@ -2039,6 +2100,16 @@ const A = {
   track: v => push('track',{id:v}),
   'track-live': v => { S.stack=[{name:'dispatch', params:{id:v}}]; S.anim='fwd'; render(); },
   'sb-demo-next': () => sbDemoAdvance(),
+  // Reopening a booking from the list rebuilds the tracking screen's state
+  // from the row, so a finished job can be looked at again.
+  'open-booking': v => {
+    const row = (S.sbBookings||[]).find(b=>b.id===v);
+    if(!row) return;
+    S.activeBooking = { id:row.id, code:row.code, service:row.service, sbStatus:row.status,
+                        phase:SB_STATUS_TO_PHASE[row.status]||'REQUESTED', detail:null, startedAt:Date.now() };
+    S.stack=[{name:'dispatch', params:{id:row.id}}]; S.anim='fwd'; render();
+    sbRefreshCustomerBooking();
+  },
   advance: v => { const b=S.bookings.find(x=>x.id===v); if(b.step<4){ b.step++; render(true); toast(STEPS[b.step].t + (b.step===4?' 🎉':'')); } },
   bfilter: v => { S.bookingFilter=v; render(true); },
   'read-all': () => { S.notifs.forEach(n=>n.unread=false); render(true); toast(t('toast.readAll')); },
@@ -2232,6 +2303,7 @@ document.addEventListener('submit', async e => {
       S.tab='home'; S.stack=[]; S.anim='fade';
       sbSubscribe();
       if(S.role==='worker') sbRefreshWorker();
+      if(S.role==='customer') sbRefreshCustomerBookings();
       render();
       toast(t('toast.signedIn',{ name: S.user.name }));
       return;
