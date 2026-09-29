@@ -583,11 +583,11 @@ async function sbRefreshCustomerBooking(){
 // ?demo=off turns it off, for showing the honest empty-handed case or for
 // demonstrating with a second device.
 const DEMO_DISPATCH = (new URLSearchParams(location.search).get('demo') !== 'off');
-const DEMO_STEPS = [
-  { status:'accepted',  afterMs:4500 },  // searching, then a member takes it
-  { status:'started',   afterMs:4000 },  // travelling, then work begins
-  { status:'completed', afterMs:5000 }   // job done
-];
+
+// The booking's own statuses, in the order they happen. The screen shows one
+// row per entry because each one is a row in the database -- there is no
+// display-only stage that nothing is written for.
+const SB_FLOW = ['pending', 'accepted', 'started', 'completed'];
 
 let demoWorker = null;
 async function demoWorkerClient(){
@@ -603,36 +603,33 @@ async function demoWorkerClient(){
   return demoWorker;
 }
 
-// Each run carries a token so a second booking cancels the first one's
-// remaining steps rather than both writing over each other.
-let demoRunToken = 0;
+// Moves the booking on by exactly one status, as the seeded member.
+//
+// It is not a painted-on animation: the write goes through the same policies
+// that would refuse it if the booking were not theirs to take, and the
+// customer's own session cannot make it at all. What the button simulates is
+// a member deciding to act, not the acting.
+async function sbDemoAdvance(){
+  const b = S.activeBooking;
+  if(!b || S.demoBusy) return;
+  const i = SB_FLOW.indexOf(b.sbStatus || 'pending');
+  if(i < 0 || i >= SB_FLOW.length - 1) return;
+  const next = SB_FLOW[i + 1];
 
-async function runDemoDispatch(bookingId){
-  if(!DEMO_DISPATCH || !IS_SB || S.role !== 'customer') return;
-  const token = ++demoRunToken;
-  S.demoRunning = true; render(true);
-
+  S.demoBusy = true; render(true);
   try{
     const { client, userId } = await demoWorkerClient();
-
-    for(const step of DEMO_STEPS){
-      await new Promise(r => setTimeout(r, step.afterMs));
-      // Abandon quietly if this run was superseded, the customer left, or
-      // the booking moved on without us -- a real worker on a second device
-      // beating the timer is a success, not an error.
-      if(token !== demoRunToken) return;
-      if(!S.user || !S.activeBooking || S.activeBooking.id !== bookingId) return;
-      if(['completed','cancelled'].includes(S.activeBooking.sbStatus)) return;
-
-      const patch = step.status === 'accepted' ? { status:'accepted', worker_id:userId } : { status:step.status };
-      const { data, error } = await client.from('bookings').update(patch).eq('id', bookingId).select('id');
-      if(error || !data || !data.length) return;   // policy said no, or someone else has it
-      await client.from('booking_events').insert({ booking_id:bookingId, status:step.status, actor_id:userId });
-    }
+    const patch = next === 'accepted' ? { status:'accepted', worker_id:userId } : { status:next };
+    const { data, error } = await client.from('bookings').update(patch).eq('id', b.id).select('id');
+    if(error) throw new Error(error.message);
+    if(!data || !data.length){ toast(t('dispatch.taken')); return; }
+    await client.from('booking_events').insert({ booking_id:b.id, status:next, actor_id:userId });
+    // Realtime will bring it back, but do not make the presenter wait on it.
+    await sbRefreshCustomerBooking();
   }catch(e){
-    console.warn('[demo dispatch]', e.message);
+    toast(e.message || 'Could not advance the booking');
   }finally{
-    if(token === demoRunToken){ S.demoRunning = false; render(true); }
+    S.demoBusy = false; render(true);
   }
 }
 
@@ -981,7 +978,7 @@ const dayLabel = v => Array.isArray(v) ? v[0]+' '+tl('months')[v[1]] : t('day.'+
 const SLOTS = ['9:00 AM','11:00 AM','1:00 PM','3:00 PM','5:00 PM','7:00 PM'];
 
 const S = {
-  user:null, token:null, socket:null, socketLive:false, activeBooking:null, reqWindow:45, bookingBusy:false, authView:'login', coops:null, skills:null, pingTimer:null, lastPing:0, bookingPoll:null, workerJobs:null, signupBusy:false, sbUserId:null, sbJobs:null, sbChannel:null, demoRunning:false,
+  user:null, token:null, socket:null, socketLive:false, activeBooking:null, reqWindow:45, bookingBusy:false, authView:'login', coops:null, skills:null, pingTimer:null, lastPing:0, bookingPoll:null, workerJobs:null, signupBusy:false, sbUserId:null, sbJobs:null, sbChannel:null, demoBusy:false,
   role:'customer', loginRole:'customer', tab:'home', stack:[], anim:'fade',
   theme:'light', lang:'en', splashDone:false,
   draft:{date:0, slot:1},
@@ -1118,6 +1115,16 @@ const STR = {
   'signup.haveAccount':['Already registered?','ஏற்கனவே பதிவு செய்துள்ளீர்களா?','पहले से पंजीकृत?','আগেই নিবন্ধিত?'],
   'signup.signin':['Sign in','உள்நுழையவும்','साइन इन करें','সাইন ইন করুন'],
   'signup.err':['Could not create the account','கணக்கை உருவாக்க முடியவில்லை','खाता नहीं बन सका','অ্যাকাউন্ট তৈরি হয়নি'],
+  'track.s.requested':['Booking requested','முன்பதிவு கோரப்பட்டது','बुकिंग अनुरोध','বুকিং অনুরোধ'],
+  'track.d.requested':['Sent to the local cooperative','உள்ளூர் கூட்டுறவுக்கு அனுப்பப்பட்டது','स्थानीय सहकारी को भेजा','স্থানীয় সমবায়ে পাঠানো'],
+  'track.s.assigned':['Member assigned','உறுப்பினர் ஒதுக்கப்பட்டார்','सदस्य नियुक्त','সদস্য নিযুক্ত'],
+  'track.d.assigned':['A verified member is on the way','சரிபார்க்கப்பட்ட உறுப்பினர் வருகிறார்','सत्यापित सदस्य आ रहे हैं','যাচাই করা সদস্য আসছেন'],
+  'track.s.progress':['Service in progress','சேவை நடைபெறுகிறது','सेवा जारी','সেবা চলছে'],
+  'track.d.progress':['Share the code to start the job','குறியீட்டைப் பகிரவும்','कोड साझा करें','কোড শেয়ার করুন'],
+  'track.s.done':['Completed','முடிந்தது','पूर्ण','সম্পন্ন'],
+  'track.d.done':['Rate the member to settle the job','மதிப்பிடவும்','सदस्य को रेट करें','সদস্যকে রেট দিন'],
+  'track.simulating':['Updating…','புதுப்பிக்கிறது…','अपडेट हो रहा है…','আপডেট হচ্ছে…'],
+  'dispatch.searchingSub':['Scoring nearby cooperative members','அருகிலுள்ள உறுப்பினர்கள்','आस-पास के सदस्य','কাছের সদস্যরা'],
   'dispatch.simulated':['simulated member','மாதிரி உறுப்பினர்','सिम्युलेटेड सदस्य','সিমুলেটেড সদস্য'],
   'track.updating':['updating','புதுப்பிக்கிறது','अपडेट हो रहा है','আপডেট হচ্ছে'],
   'dispatch.p.started':['Work started','வேலை தொடங்கியது','काम शुरू','কাজ শুরু'],
@@ -1818,52 +1825,63 @@ const DISPATCH_PHASES = [
 // the customer has nothing to do about it, so it shares the assigned row.
 const PHASE_ALIAS = { TOP3:'DISPATCHING_TOP3', POOL:'DISPATCHING_POOL', CONFIRMED:'ASSIGNED', SETTLED:'COMPLETED' };
 
+// Four stages, because the booking has four statuses. Each row is something
+// that was actually written, not a step invented to pad the timeline.
+const TRACK_STAGES = [
+  { status:'pending',   title:'track.s.requested', desc:'track.d.requested' },
+  { status:'accepted',  title:'track.s.assigned',  desc:'track.d.assigned' },
+  { status:'started',   title:'track.s.progress',  desc:'track.d.progress' },
+  { status:'completed', title:'track.s.done',      desc:'track.d.done' }
+];
+
+// Stable per booking rather than random per render: a code that changed every
+// time the screen redrew would be no use to anybody reading it out.
+const startCode = code => {
+  let h = 0; for(const ch of String(code||'')) h = (h*31 + ch.charCodeAt(0)) % 10000;
+  return String(h).padStart(4,'0').split('');
+};
+
 SCREENS.dispatch = ({id}) => {
   const b = S.activeBooking && S.activeBooking.id===id ? S.activeBooking : null;
   if(!b) return { top:titleBar(t('dispatch.title'),'',true), body:`<div class="page"><div class="empty"><div class="t-title">${t('dispatch.gone')}</div></div></div>` };
 
-  const phase = b.phase || 'REQUESTED';
-  const assigned = ['ASSIGNED','CONFIRMED','IN_PROGRESS','COMPLETED','SETTLED'].includes(phase);
-  const finished = ['COMPLETED','SETTLED'].includes(phase);
-  const done = assigned;
-  const exhausted = phase==='EXHAUSTED';
-  const shown = PHASE_ALIAS[phase] || phase;
-  const idx = Math.max(0, DISPATCH_PHASES.findIndex(p=>p.key===shown));
+  const status = b.sbStatus || 'pending';
+  const step = Math.max(0, TRACK_STAGES.findIndex(x=>x.status===status));
+  const done = status==='completed';
   const w = b.detail && b.detail.worker;
-  const elapsed = Math.floor((Date.now()-b.startedAt)/1000);
+  const pos = [[30,150],[110,118],[240,74],[285,48]][step];
+  const code = startCode(b.code);
 
-  return { top:titleBar(t('dispatch.title'), b.id.slice(0,8), true), body:`<div class="page">
-    <div class="card" style="padding:18px 16px;text-align:center">
-      ${exhausted
-        ? `<div class="t-title" style="font-size:16px">${t('dispatch.none')}</div><p class="t-sub" style="margin-top:8px">${t('dispatch.noneBody')}</p>`
-        : done
-          ? `<div class="check-circle" style="width:56px;height:56px;margin:0 auto"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
-             <div class="t-title" style="font-size:16px;margin-top:12px">${t('dispatch.assigned')}</div>`
-          : `<div class="ring" style="margin:0 auto"><svg width="48" height="48"><circle cx="24" cy="24" r="20" fill="none" stroke="var(--primary-soft)" stroke-width="4"/><circle class="fg" cx="24" cy="24" r="20" fill="none" stroke="var(--primary)" stroke-width="4" stroke-linecap="round"/></svg></div>
-             <div class="t-title" style="font-size:16px;margin-top:12px">${t('dispatch.searching')}</div>
-             <p class="t-sub" style="margin-top:6px">${t('dispatch.elapsed',{n:elapsed})}</p>`}
-      <div class="row" style="justify-content:center;gap:6px;margin-top:10px">
-        <span class="badge ${S.socketLive?'b-green':'b-amber'}">${S.socketLive?t('dispatch.live'):t('dispatch.connecting')}</span>
-        ${assigned&&!S.demoRunning?`<span class="badge b-blue">${t('track.updating')}</span>`:''}
-        ${S.demoRunning?`<span class="badge b-amber">${t('dispatch.simulated')}</span>`:''}
-      </div>
+  const cta = done
+    ? `<button class="btn btn-ghost" data-a="tab" data-v="bookings">${t('track.done')}</button>`
+    : `<button class="btn btn-primary" data-a="sb-demo-next" ${S.demoBusy?'disabled':''}>${I('activity',18)} ${S.demoBusy?t('track.simulating'):t('track.simulate')}</button>`;
+
+  return { top:titleBar(t('track.title'), esc(b.code||'')), cta, body:`<div class="page">
+    <div class="map">
+      <svg class="route" width="100%" height="100%" viewBox="0 0 330 190" preserveAspectRatio="none"><path d="M30 150 C 90 140, 120 100, 180 100 S 270 70, 300 58" fill="none" stroke="#2563eb" stroke-width="4" stroke-dasharray="8 7" stroke-linecap="round" opacity=".7"/></svg>
+      <div class="pin-home">${I('home',16)}</div>
+      <div class="pin-worker" style="left:${pos[0]-15}px;top:${pos[1]-15}px">${I('user',14,2.5)}</div>
+      <div class="eta">${done?t('track.completed'):status==='started'?t('track.atHome'):status==='accepted'?t('track.eta',{n:18}):t('dispatch.searching')}</div>
     </div>
 
-    <div class="sec-head"><h3>${t('dispatch.progress')}</h3></div>
-    <div class="card" style="padding:14px 16px">
-      ${DISPATCH_PHASES.map((p,i)=>`<div class="row" style="gap:10px;padding:7px 0">
-        <div style="width:9px;height:9px;border-radius:50%;background:${exhausted?'var(--faint)':(i<=idx?'var(--primary)':'var(--border)')}"></div>
-        <div class="grow t-title" style="font-size:13px;font-weight:${i===idx&&!done?'800':'600'}">${t(p.label)}</div>
-        ${i<idx||finished?`<span class="badge b-green">${t('dispatch.doneTag')}</span>`:(i===idx&&!exhausted?`<span class="badge b-blue">${t('dispatch.now')}</span>`:'')}
-      </div>`).join('')}
-    </div>
+    ${w?`<div class="card list-item" style="margin-top:14px">
+      ${avatar(esc(String(w.name||'?').split(' ').map(x=>x[0]).join('').slice(0,2)), '#f59e0b', 48)}
+      <div class="grow"><div class="t-title">${esc(w.name)}</div>
+      <div class="t-sub truncate">${esc(svc(b.service).name)}${w.cooperative?' • '+esc(w.cooperative):''}</div></div>
+      <button class="icon-btn" style="background:var(--success-soft);color:var(--success);border:0" data-a="toast" data-v="${t('track.calling',{name:esc(w.name)})}">${I('phone',18)}</button></div>`
+    :`<div class="card list-item" style="margin-top:14px"><div class="s-ico" style="background:var(--primary-soft);color:var(--primary)">${I('search',18)}</div>
+      <div class="grow"><div class="t-title">${t('dispatch.searching')}</div><div class="t-sub">${t('dispatch.searchingSub')}</div></div></div>`}
 
-    ${w?`<div class="sec-head"><h3>${t('dispatch.worker')}</h3></div>
-    <div class="card list-item">
-      ${avatar(esc((w.name||'?').split(' ').map(x=>x[0]).join('').slice(0,2)), '#16a34a', 44)}
-      <div class="grow"><div class="t-title">${esc(w.name)||'—'}</div>
-      <div class="t-sub">${[esc(w.cooperative), w.rating?`${Number(w.rating).toFixed(2)}★ (${w.ratingCount||0})`:null, w.distanceKm!=null?`${Number(w.distanceKm).toFixed(1)} km`:null].filter(Boolean).join(' • ')}</div></div>
-    </div>`:''}
+    ${!done && status!=='pending'?`<div class="card list-item" style="margin-top:10px;justify-content:space-between">
+      <div><div class="t-title">${t('track.otp')}</div><div class="t-sub">${t('track.otpHint')}</div></div>
+      <div class="otp">${code.map(d=>`<span>${d}</span>`).join('')}</div></div>`:''}
+
+    <div class="sec-head"><h3>${t('track.status')}</h3>${done?'':`<span class="live"><i></i>${t('live')}</span>`}</div>
+    <div class="card" style="padding:16px"><div class="timeline">
+      ${TRACK_STAGES.map((st,i)=>`<div class="tl ${i<step||done?'done':i===step?'now':''}">
+        <div class="dotc">${i<step||done?I('check',12,3.5):''}</div>
+        <div><div class="t-title">${t(st.title)}</div><div class="t-sub">${t(st.desc)}</div></div></div>`).join('')}
+    </div></div>
 
     <p class="t-sub" style="text-align:center;margin-top:14px;font-size:11.5px">${t('dispatch.note')}</p>
   </div>` };
@@ -1989,7 +2007,6 @@ const A = {
                             sbStatus:'pending', detail:null, startedAt:Date.now() };
         S.stack=[{name:'dispatch', params:{id:row.id}}]; S.anim='fade';
         render();
-        runDemoDispatch(row.id);
         return;
       }
       const res = await apiPost('/bookings/request', {
@@ -2013,6 +2030,7 @@ const A = {
   'track-replace': v => { S.tab='bookings'; S.stack=[{name:'track',params:{id:v}}]; S.anim='fwd'; render(); },
   track: v => push('track',{id:v}),
   'track-live': v => { S.stack=[{name:'dispatch', params:{id:v}}]; S.anim='fwd'; render(); },
+  'sb-demo-next': () => sbDemoAdvance(),
   advance: v => { const b=S.bookings.find(x=>x.id===v); if(b.step<4){ b.step++; render(true); toast(STEPS[b.step].t + (b.step===4?' 🎉':'')); } },
   bfilter: v => { S.bookingFilter=v; render(true); },
   'read-all': () => { S.notifs.forEach(n=>n.unread=false); render(true); toast(t('toast.readAll')); },
