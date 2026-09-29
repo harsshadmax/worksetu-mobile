@@ -370,6 +370,9 @@ textarea:focus-visible, [tabindex]:focus-visible, .s-item:focus-visible,
 // API. Set window.WORKSETU_API_BASE to the API origin when this is served
 // from somewhere that is not proxying (that host must then be in the API's
 // CORS_ALLOWED_ORIGINS).
+const BACKEND = (new URLSearchParams(location.search).get('backend') === 'api') ? 'api' : 'supabase';
+const IS_SB = BACKEND === 'supabase';
+
 const API_BASE = (window.WORKSETU_API_BASE || '') + '/api/v1';
 
 // Cooperative commission, matching PlatformConfig.commissionPercent on the API.
@@ -377,10 +380,14 @@ const COMMISSION_PCT = 15;
 
 // Seeded cooperative accounts on the live API. These are demo members, not
 // the credentials of any real person.
-const DEMO_ACCOUNTS = {
-  customer: { identifier:'deepika.demo@worksetu.test', password:'Customer@123' },
-  worker:   { identifier:'ravi.demo@worksetu.test',    password:'Worker@123' },
+const DEMO_ACCOUNTS = IS_SB ? {
+  customer: { identifier:'deepika.demo@worksetu.test',   password:'Customer@123' },
+  worker:   { identifier:'ravi.demo@worksetu.test',      password:'Worker@123' },
   admin:    { identifier:'registrar.demo@worksetu.test', password:'AdminPass@123' }
+} : {
+  customer: { identifier:'deepika@example.com',     password:'Customer@123' },
+  worker:   { identifier:'ravi.kumar@example.com',  password:'Worker@123' },
+  admin:    { identifier:'registrar@worksetu.coop', password:'AdminPass@123' }
 };
 
 async function apiLogin(role, identifier, password){
@@ -425,8 +432,6 @@ async function apiPost(path, body){
 // works today stops working. ?backend=supabase selects the Supabase loop
 // instead: its own auth, its own bookings table, realtime rather than
 // Socket.IO. Neither knows about the other.
-const BACKEND = (new URLSearchParams(location.search).get('backend') === 'api') ? 'api' : 'supabase';
-const IS_SB = BACKEND === 'supabase';
 
 const SB_URL = 'https://mhiyjrmmrrxqantcxktp.supabase.co';
 const SB_KEY = 'sb_publishable_q2boPUlyX8jSEUAkjSLt8A_f9FF-XbE';
@@ -828,7 +833,7 @@ function wakeApi(){
   if(IS_SB) return;
   S.apiWaking = true;
   const started = Date.now();
-  fetch('/api/v1/../../health', { method:'GET', cache:'no-store' })
+  fetch('/health', { method:'GET', cache:'no-store' })
     .catch(()=>{})
     .finally(()=>{
       S.apiWaking = false;
