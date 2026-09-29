@@ -1252,6 +1252,11 @@ const STR = {
   // tracking
   'track.title':['Track Booking','முன்பதிவைக் கண்காணி','बुकिंग ट्रैक करें','বুকিং ট্র্যাক করুন'],
   'track.done':['Done','முடிந்தது','हो गया','হয়ে গেছে'],
+  'track.act.pending':['Worker accepts the job','பணியாளர் ஏற்கிறார்','वर्कर काम स्वीकारता है','কর্মী কাজ গ্রহণ করেন'],
+  'track.act.accepted':['Worker starts the job','பணியாளர் தொடங்குகிறார்','वर्कर काम शुरू करता है','কর্মী কাজ শুরু করেন'],
+  'track.act.started':['Worker marks it complete','பணியாளர் முடித்ததாகக் குறிக்கிறார்','वर्कर पूरा चिह्नित करता है','কর্মী সম্পন্ন চিহ্নিত করেন'],
+  'track.working':['Sending…','அனுப்புகிறது…','भेजा जा रहा है…','পাঠানো হচ্ছে…'],
+  'track.standIn':['Standing in for the worker\u2019s phone \u2014 normally they tap this themselves','பணியாளரின் தொலைபேசிக்குப் பதிலாக','वर्कर के फ़ोन के बदले','কর্মীর ফোনের পরিবর্তে'],
   'track.simulate':['Simulate next update','அடுத்த நிலையை உருவகப்படுத்து','अगला अपडेट सिमुलेट करें','পরবর্তী আপডেট সিমুলেট করুন'],
   'track.completed':['✅ Service completed','✅ சேவை முடிந்தது','✅ सेवा पूरी हुई','✅ পরিষেবা সম্পন্ন'],
   'track.atHome':['🔧 Worker at your home','🔧 தொழிலாளர் உங்கள் வீட்டில்','🔧 कामगार आपके घर पर है','🔧 কর্মী আপনার বাড়িতে'],
@@ -1854,7 +1859,10 @@ SCREENS.dispatch = ({id}) => {
 
   const cta = done
     ? `<button class="btn btn-ghost" data-a="tab" data-v="bookings">${t('track.done')}</button>`
-    : `<button class="btn btn-primary" data-a="sb-demo-next" ${S.demoBusy?'disabled':''}>${I('activity',18)} ${S.demoBusy?t('track.simulating'):t('track.simulate')}</button>`;
+    : `<div style="width:100%">
+        <button class="btn btn-primary" data-a="sb-demo-next" ${S.demoBusy?'disabled':''}>${I('activity',18)} ${S.demoBusy?t('track.working'):t('track.act.'+status)}</button>
+        <p class="t-sub" style="text-align:center;margin:7px 0 0;font-size:11px">${t('track.standIn')}</p>
+      </div>`;
 
   return { top:titleBar(t('track.title'), esc(b.code||'')), cta, body:`<div class="page">
     <div class="map">
